@@ -197,16 +197,15 @@ export function createLinearClient({
 
   async function listWorkflowStates(teamId) {
     const data = await request(`
-      query LinearTaskboardWorkflowStates($teamId: ID!) {
-        workflowStates(
-          filter: { team: { id: { eq: $teamId } } }
-          orderBy: position
-        ) {
-          nodes { id name type position }
+      query LinearTaskboardWorkflowStates($teamId: String!) {
+        team(id: $teamId) {
+          states {
+            nodes { id name type position }
+          }
         }
       }
     `, { teamId });
-    return data.workflowStates?.nodes ?? [];
+    return data.team?.states?.nodes ?? [];
   }
 
   async function updateIssue(issueId, input) {
