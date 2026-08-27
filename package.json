@@ -7,7 +7,8 @@
     "node": ">=22.5"
   },
   "bin": {
-    "taskctl": "./cli/taskctl.mjs"
+    "taskctl": "./cli/taskctl.mjs",
+    "linearctl": "./cli/linearctl.mjs"
   },
   "scripts": {
     "codex": "node scripts/codex-injector.mjs --launch --watch --open --port 9231",
@@ -32,6 +33,7 @@
     "typecheck": "tsc -p web/tsconfig.json --noEmit",
     "start": "node server/index.mjs",
     "taskctl": "node cli/taskctl.mjs",
+    "linear": "node cli/linearctl.mjs",
     "test": "node --test && npm run test:components",
     "test:components": "vitest run web/src/components/MarkdownDocument.test.tsx --environment jsdom",
     "test:cloud": "node --test test/cloud-shared-worker.test.mjs",
@@ -56,12 +58,12 @@
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "smol-toml": "^1.8.0",
-    "unified": "^11.0.5",
+    "unified": "^11.5.0",
     "ws": "^8.21.3"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.4",
-    "@types/js-yaml": "4.0.9",
+    "@types/js-yaml": "^4.0.9",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
