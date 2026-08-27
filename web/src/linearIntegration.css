@@ -9,7 +9,8 @@ html[data-linear-project="true"] [data-task-id] .task-card-complete {
   opacity: 0.72;
 }
 
-.linear-readonly-badge {
+.linear-readonly-badge,
+.linear-map-button {
   display: inline-flex;
   align-items: center;
   min-height: 28px;
@@ -21,6 +22,46 @@ html[data-linear-project="true"] [data-task-id] .task-card-complete {
   white-space: nowrap;
 }
 
+.linear-map-button {
+  background: transparent;
+  cursor: pointer;
+}
+
+.linear-map-button:hover {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.08));
+  color: var(--text-primary, currentColor);
+}
+
+.linear-map-button.is-mapped {
+  border-style: dashed;
+}
+
 .linear-sync-button:disabled {
   opacity: 0.55;
+}
+
+.linear-mapping-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.linear-mapping-details {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 20px;
+}
+
+.linear-mapping-details > div {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.linear-mapping-details dt {
+  color: var(--text-secondary, currentColor);
+}
+
+.linear-mapping-details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
