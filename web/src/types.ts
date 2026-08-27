@@ -333,7 +333,7 @@ export interface Project {
   id: string;
   name: string;
   workspacePath: string | null;
-  source: "local" | "jira";
+  source: "local" | "jira" | "linear";
   labels: string[];
   issueCount: number;
   createdAt: string;
@@ -386,6 +386,44 @@ export interface TaskRelations {
   related: TaskRelationSummary[];
 }
 
+export interface LinearDependency {
+  issueId: string;
+  identifier: string;
+  title: string;
+  url: string | null;
+  stateId: string | null;
+  stateType: string | null;
+  stateName: string | null;
+  status: TaskStatus;
+  teamId: string | null;
+  teamKey: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  taskId: string | null;
+  resolved: boolean;
+}
+
+export interface LinearDependencies {
+  complete: boolean;
+  blockedBy: LinearDependency[];
+  unresolvedCount: number;
+  unblocked: boolean;
+}
+
+export type LinearClaimReason =
+  | "NOT_LINEAR"
+  | "ARCHIVED"
+  | "STATUS_NOT_TODO"
+  | "MISSING_CODEX_READY"
+  | "DEPENDENCIES_INCOMPLETE"
+  | "BLOCKED_BY_DEPENDENCY"
+  | "ALREADY_BOUND";
+
+export interface LinearClaimEligibility {
+  eligible: boolean;
+  reasons: LinearClaimReason[];
+}
+
 interface TaskConversationRefBase {
   source: "task" | "comment";
   sourceId: string;
@@ -425,10 +463,13 @@ export interface Task {
   startDate: string | null;
   dueDate: string | null;
   recurrence: Recurrence | null;
-  source: "local" | "jira";
+  source: "local" | "jira" | "linear";
   externalOrigin?: string | null;
   externalKey?: string | null;
   externalUrl: string | null;
+  linearDependencies?: LinearDependencies;
+  claimEligibility?: LinearClaimEligibility;
+  continuationEligibility?: LinearClaimEligibility;
   archivedAt: string | null;
   relations: TaskRelations;
   version: number;

@@ -16,8 +16,13 @@ import { withoutTaskboardLauncherEnvironment } from "../shared/codex-environment
 import {
   parseTaskboardAutomationHostRequest,
   reconcileTaskboardAutomation,
-  taskboardAutomationPolicyOperation,
 } from "../shared/taskboard-automation.mjs";
+import {
+  decideTaskboardAutomationPolicy,
+  isTemporaryAutomationPauseReason,
+  shouldDisableTaskboardAutomationPolicy,
+} from "../shared/taskboard-automation-policy.mjs";
+import { summarizeRunnableTodos } from "../shared/taskboard-runnable-todo.mjs";
 import {
   findResidentInjectorPids,
   handleHostBindingPayload,
@@ -1134,7 +1139,7 @@ async function applyTaskboardAutomationPolicy(
   request,
   rpc,
   stillCurrent = () => true,
-  { explicit = false, previousQuotaState } = {},
+  { explicit = false, previousQuotaState, previousPauseReason = null } = {},
 ) {
   const todoResponse = request.enabledByUser
     ? await fetch(
@@ -1149,8 +1154,10 @@ async function applyTaskboardAutomationPolicy(
   if (todoPayload && !Array.isArray(todoPayload.tasks)) {
     throw new Error("Taskboard todo check returned invalid JSON");
   }
-  const hasTodo = todoPayload ? todoPayload.tasks.length > 0 : null;
-  const quota = request.quotaAware && hasTodo !== false
+  const { hasTodo, hasRunnableTodo } = todoPayload
+    ? summarizeRunnableTodos(todoPayload.tasks)
+    : { hasTodo: null, hasRunnableTodo: null };
+  const quota = request.quotaAware && hasRunnableTodo !== false
     ? await readCodexQuotaStatus(request.model)
     : null;
   if (!stillCurrent()) return { quota, stale: true };
@@ -1165,20 +1172,35 @@ async function applyTaskboardAutomationPolicy(
         : null
     ) ?? items[0];
   }
-  const operation = taskboardAutomationPolicyOperation(request, {
+  const { operation, pauseReason } = decideTaskboardAutomationPolicy(request, {
     explicit,
     hasTodo,
+    hasRunnableTodo,
     previousQuotaState,
     quotaState: quota?.state,
     currentStatus: currentItem?.status,
+    previousPauseReason,
   });
   const result = operation === "list"
     ? { item: currentItem, items: listed.items }
     : await reconcileTaskboardAutomation({ ...request, operation }, rpc);
   if (result?.error === "not-found") {
-    return { operation, hasTodo, ...(quota ? { quota } : {}) };
+    return {
+      operation,
+      pauseReason,
+      hasTodo,
+      hasRunnableTodo,
+      ...(quota ? { quota } : {}),
+    };
   }
-  return { ...result, operation, hasTodo, ...(quota ? { quota } : {}) };
+  return {
+    ...result,
+    operation,
+    pauseReason,
+    hasTodo,
+    hasRunnableTodo,
+    ...(quota ? { quota } : {}),
+  };
 }
 
 function storedAutomationPolicy(request) {
@@ -1202,7 +1224,7 @@ function storedAutomationPolicy(request) {
 
 function restoredAutomationPolicy(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const { quota, ...stored } = value;
+  const { quota, pauseReason, ...stored } = value;
   const request = parseTaskboardAutomationHostRequest({
     ...stored,
     id: "restored-policy",
@@ -1210,7 +1232,11 @@ function restoredAutomationPolicy(value) {
     requestId: "restored-policy",
     operation: "apply-policy",
   });
-  return request ? { request, ...(quota ? { quota } : {}) } : null;
+  return request ? {
+    request,
+    ...(quota ? { quota } : {}),
+    ...(isTemporaryAutomationPauseReason(pauseReason) ? { pauseReason } : {}),
+  } : null;
 }
 
 async function ensureQuotaPoliciesLoaded() {
@@ -1242,6 +1268,9 @@ function persistQuotaPolicies() {
       {
         ...storedAutomationPolicy(record.request),
         ...(record.quota ? { quota: record.quota } : {}),
+        ...(isTemporaryAutomationPauseReason(record.pauseReason)
+          ? { pauseReason: record.pauseReason }
+          : {}),
       },
     ]),
   );
@@ -1321,15 +1350,22 @@ function enqueueQuotaPolicyMutation(record, rpc, { explicit = false } = {}) {
         {
           explicit,
           previousQuotaState: current.quota?.state,
+          previousPauseReason: current.pauseReason ?? null,
         },
       );
       if (result.stale) return result;
-      if (result.hasTodo === false && result.operation === "pause") {
+      if (shouldDisableTaskboardAutomationPolicy({
+        operation: result.operation,
+        pauseReason: result.pauseReason,
+        currentStatus: result.item?.status,
+      })) {
         current.version += 1;
         current.request = { ...current.request, enabledByUser: false };
-      } else if (!explicit && result.operation === "list" && result.item?.status === "PAUSED") {
-        current.version += 1;
-        current.request = { ...current.request, enabledByUser: false };
+        delete current.pauseReason;
+      } else if (isTemporaryAutomationPauseReason(result.pauseReason)) {
+        current.pauseReason = result.pauseReason;
+      } else {
+        delete current.pauseReason;
       }
       if (result.item?.id) {
         current.request = { ...current.request, automationId: result.item.id };

@@ -36,7 +36,7 @@ test("the taskboard skill coordinates safe issue execution and review handoff", 
   );
   assert.match(
     skillSource,
-    /If the move conflicts because the `version` is stale[\s\S]*Retry once with the latest `version` only when the issue is still a claimable `todo`, is not bound to another conversation, is not archived, and its description and latest comments are unchanged[\s\S]*If it was claimed, its status or requirements changed, it is archived, the service is unavailable, a permanent API error occurs, or the retry fails, stop and report[\s\S]*Never loop or take over another agent's claim/i,
+    /If the move conflicts because the `version` is stale[\s\S]*Retry once with the latest `version` only when the issue is still an eligible `todo`, is not bound to another conversation, is not archived, and its description and latest comments are unchanged[\s\S]*For an unbound Linear issue, re-check `claimEligibility\.eligible === true`[\s\S]*for a complete bound continuation, re-check `continuationEligibility\.eligible === true`[\s\S]*If it was claimed, its status or requirements changed, it is archived, the service is unavailable, a permanent API error occurs, or the retry fails, stop and report[\s\S]*Never loop or take over another agent's claim/i,
   );
 
   assert.match(

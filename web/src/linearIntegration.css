@@ -1,0 +1,105 @@
+html[data-linear-project="true"] .header-create-button,
+html[data-linear-project="true"] .add-task-button {
+  display: none !important;
+}
+
+html[data-linear-project="true"] [data-task-id] .card-property-control,
+html[data-linear-project="true"] [data-task-id] .task-card-complete {
+  pointer-events: none;
+  opacity: 0.72;
+}
+
+html[data-linear-project="true"] .issue-title-input,
+html[data-linear-project="true"] .issue-description-read,
+html[data-linear-project="true"] .detail-property-picker {
+  pointer-events: none;
+  opacity: 0.78;
+}
+
+html[data-linear-project="true"] .issue-title-input {
+  caret-color: transparent;
+}
+
+html[data-linear-project="true"] .issue-relation-add,
+html[data-linear-project="true"] .issue-relation-remove,
+html[data-linear-project="true"] .attachment-add-button,
+html[data-linear-project="true"] .attachment-actions button,
+html[data-linear-project="true"] .comment-attach-button {
+  display: none !important;
+}
+
+.linear-source-badge,
+.linear-map-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.24));
+  border-radius: 6px;
+  color: var(--text-secondary, currentColor);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.linear-map-button {
+  background: transparent;
+  cursor: pointer;
+}
+
+.linear-map-button:hover {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.08));
+  color: var(--text-primary, currentColor);
+}
+
+.linear-map-button.is-mapped {
+  border-style: dashed;
+}
+
+.linear-sync-button:disabled,
+.linear-codex-ready-action:disabled {
+  opacity: 0.55;
+}
+
+.linear-codex-ready-action.is-ready {
+  border-style: dashed;
+}
+
+.linear-codex-ready-state {
+  margin-left: auto;
+  color: var(--text-secondary, currentColor);
+  font-size: 11px;
+}
+
+.linear-codex-ready-error {
+  display: block;
+  padding: 0 8px;
+  color: var(--danger-text, #b42318);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.linear-mapping-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.linear-mapping-details {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 20px;
+}
+
+.linear-mapping-details > div {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.linear-mapping-details dt {
+  color: var(--text-secondary, currentColor);
+}
+
+.linear-mapping-details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}

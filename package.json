@@ -7,7 +7,8 @@
     "node": ">=22.5"
   },
   "bin": {
-    "taskctl": "./cli/taskctl.mjs"
+    "taskctl": "./cli/taskctl.mjs",
+    "linearctl": "./cli/linearctl.mjs"
   },
   "scripts": {
     "codex": "node scripts/codex-injector.mjs --launch --watch --open --port 9231",
@@ -32,6 +33,7 @@
     "typecheck": "tsc -p web/tsconfig.json --noEmit",
     "start": "node server/index.mjs",
     "taskctl": "node cli/taskctl.mjs",
+    "linear": "node cli/linearctl.mjs",
     "test": "node --test && npm run test:components",
     "test:components": "vitest run web/src/components/MarkdownDocument.test.tsx --environment jsdom",
     "test:cloud": "node --test test/cloud-shared-worker.test.mjs",
