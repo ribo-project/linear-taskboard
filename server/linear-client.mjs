@@ -196,6 +196,48 @@ export function createLinearClient({
     return nodes;
   }
 
+  async function listIssueLabels({ first = DEFAULT_PAGE_SIZE } = {}) {
+    const nodes = [];
+    let after = null;
+    while (true) {
+      const data = await request(`
+        query LinearTaskboardIssueLabels($first: Int!, $after: String) {
+          issueLabels(first: $first, after: $after) {
+            nodes { id name color description }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      `, { first, after });
+      const connection = data.issueLabels;
+      const pageNodes = Array.isArray(connection?.nodes) ? connection.nodes : [];
+      nodes.push(...pageNodes);
+      if (!connection?.pageInfo?.hasNextPage) break;
+      after = connection.pageInfo.endCursor;
+      if (!after) {
+        throw new LinearApiError(
+          "INVALID_LINEAR_PAGINATION",
+          "Linear reported another issue label page without an end cursor",
+        );
+      }
+    }
+    return nodes;
+  }
+
+  async function createIssueLabel(input) {
+    const data = await request(`
+      mutation LinearTaskboardCreateIssueLabel($input: IssueLabelCreateInput!) {
+        issueLabelCreate(input: $input) {
+          success
+          issueLabel { id name color description }
+        }
+      }
+    `, { input });
+    if (!data.issueLabelCreate?.success || !data.issueLabelCreate.issueLabel) {
+      throw new LinearApiError("LINEAR_LABEL_CREATE_REJECTED", "Linear rejected the issue label creation");
+    }
+    return data.issueLabelCreate.issueLabel;
+  }
+
   async function listComments(issueId, { first = DEFAULT_PAGE_SIZE } = {}) {
     const nodes = [];
     let after = null;
@@ -284,6 +326,8 @@ export function createLinearClient({
     request,
     viewer,
     listIssues,
+    listIssueLabels,
+    createIssueLabel,
     listComments,
     listWorkflowStates,
     updateIssue,
