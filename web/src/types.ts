@@ -469,6 +469,7 @@ export interface Task {
   externalUrl: string | null;
   linearDependencies?: LinearDependencies;
   claimEligibility?: LinearClaimEligibility;
+  continuationEligibility?: LinearClaimEligibility;
   archivedAt: string | null;
   relations: TaskRelations;
   version: number;
