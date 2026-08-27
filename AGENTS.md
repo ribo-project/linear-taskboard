@@ -1,3 +1,21 @@
+# Linear Fork Invariants
+
+These rules override any inherited Taskboard guidance below when the task or project has `source = linear`.
+
+1. **Linear is the authoritative PM source.** Project/Issue state, title, description, labels, comments, dependencies, and other Linear-owned fields must not become an independently editable local copy.
+2. **SQLite is a projection/cache plus Codex-only metadata.** It may retain thread/workspace/runtime bindings that have no Linear equivalent, but a local mutation must not pretend a Linear-owned field changed unless the Linear write-through operation succeeded.
+3. **Do not create local-only Issues inside a Linear Project.** Linear-backed Projects must remain projections of Linear.
+4. **Automatic execution requires explicit authorization.** A new Linear claim requires the server-calculated `claimEligibility.eligible === true`; an existing complete binding requires `continuationEligibility.eligible === true`.
+5. **`codex-ready` is a real Linear Label.** Connecting/syncing Linear never grants execution permission. Only explicit user action may add it. Removing it must preserve unrelated Labels.
+6. **Dependencies fail closed.** Linear native blocker relations are authoritative, including cross-Project blockers. Missing/incomplete dependency data means do not claim.
+7. **Bindings must remain complete and stable.** Preserve `threadId`, `codexProjectId`, `codexProjectKind`, `codexHostId`, and `workspacePath`. Do not replace an existing valid binding with another conversation during continuation.
+8. **Claim before work.** The critical Linear transition is `Todo → In Progress`, and the server must recheck version/eligibility before mutating Linear.
+9. **Report back to Linear.** Execution results, verification, PR information, and remaining risks belong in Linear comments when the Issue is Linear-backed.
+10. **Stop at In Review by default.** Human acceptance remains the normal gate for `Done`.
+11. **Unsupported Linear fields stay read-only.** Do not bypass the server guard or write directly to SQLite just because the upstream UI/CLI exposes a local editing path.
+12. **Inherited Cloudflare/D1 mode is not a second Linear PM database.** For Linear Projects, Linear wins whenever any projection/cloud/local copy disagrees.
+13. Read `README.md`, `README.zh-TW.md`, `docs/linear-setup.zh-TW.md`, and `docs/linear-integration-architecture.md` before changing Linear integration behavior. Historical/upstream docs are not authoritative when they conflict with these invariants.
+
 # Project Development Rules
 
 For feature work in this repository, use this order:
@@ -111,7 +129,7 @@ Make the smallest root-cause change. Do not add unrelated refactors, abstraction
 - The user grants standing authorization to submit the public PR URL, exact head SHA, and established review instructions to ChatGPT web Pro; execution conversations send them directly without requesting confirmation each time.
 - Development and review must avoid over-design and over-defensive recommendations. Do not request or add hypothetical guardrails, unrelated refactors, compatibility layers, style preferences, or scope expansion.
 - Before any change is submitted to ChatGPT web Pro, complete the requested function, verify its direct real path, and provide the user with a working demo that uses the relevant real data or runtime. Start Pro review only after the user confirms that the function works. This gate applies to UI and non-UI work. Do not use Pro to discover whether an unfinished function basically works.
-- Independent dispatched conversations run their required reviews in parallel. Do not serialize independent Agent or Pro reviews through the coordinating conversation.
+- Independent dispatched conversations run their required reviews in parallel. Do not serialize them through the coordinating conversation.
 - For Pro review, wait for the complete answer. Do not use an instant-answer result. Check at approximately five-minute intervals when necessary; a complete review can take more than 30 minutes.
 - Fix actionable blockers in the same PR. The dispatched execution conversation decides whether the changed complexity warrants another Pro review; trivial targeted follow-up edits can use its normal Agent review.
 - Before accepting a handoff, the coordinating conversation checks that the execution evidence, scope, CI state, complexity decision, and required review result are present. It does not repeat the code review.
