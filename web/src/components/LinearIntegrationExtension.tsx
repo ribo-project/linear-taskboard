@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { listProjects } from "../api";
+import { listProjects, listTasks } from "../api";
 import {
   configureLinearConnection,
   getLinearConnection,
+  setLinearCodexReady,
   syncLinearConnection,
   type LinearConnection,
 } from "../linearApi";
 import { taskboardStorage } from "../storage";
-import type { CodexProjectIdentity, HostContext, Project } from "../types";
+import type { CodexProjectIdentity, HostContext, Project, Task } from "../types";
 import { LinearConnectionDialog } from "./LinearConnectionDialog";
 import { RefreshIcon, RelationIcon } from "./SemanticIcons";
 
@@ -72,6 +73,10 @@ function sameIdentity(left: CodexProjectIdentity | null, right: CodexProjectIden
   );
 }
 
+function hasCodexReadyLabel(task: Task | null): boolean {
+  return Boolean(task?.labels.some((label) => label.trim().toLowerCase() === "codex-ready"));
+}
+
 export function LinearIntegrationExtension() {
   const [connection, setConnection] = useState<LinearConnection | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -79,9 +84,14 @@ export function LinearIntegrationExtension() {
   const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [savingCodexReady, setSavingCodexReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [menuTarget, setMenuTarget] = useState<HTMLElement | null>(null);
   const [headerTarget, setHeaderTarget] = useState<HTMLElement | null>(null);
+  const [detailActionsTarget, setDetailActionsTarget] = useState<HTMLElement | null>(null);
+  const [detailIdentifier, setDetailIdentifier] = useState<string | null>(null);
+  const [detailTask, setDetailTask] = useState<Task | null>(null);
   const [routeProjectId, setRouteProjectId] = useState(selectedProjectId);
   const [hostContext, setHostContext] = useState<HostContext | null>(null);
   const [projectMappings, setProjectMappings] = useState<Record<string, CodexProjectIdentity>>(
@@ -119,6 +129,10 @@ export function LinearIntegrationExtension() {
     const refreshTargets = () => {
       setMenuTarget(document.querySelector<HTMLElement>(".project-menu-actions"));
       setHeaderTarget(document.querySelector<HTMLElement>(".header-actions"));
+      setDetailActionsTarget(document.querySelector<HTMLElement>(".detail-primary-actions"));
+      const nextIdentifier = document.querySelector<HTMLElement>(".detail-copy-identifier")
+        ?.textContent?.trim() ?? null;
+      setDetailIdentifier((current) => current === nextIdentifier ? current : nextIdentifier);
     };
     refreshTargets();
     const observer = new MutationObserver(refreshTargets);
@@ -145,6 +159,41 @@ export function LinearIntegrationExtension() {
   const currentCodex = useMemo(() => currentCodexIdentity(hostContext), [hostContext]);
   const savedMapping = routeProjectId ? projectMappings[routeProjectId] ?? null : null;
   const mappedToCurrent = sameIdentity(savedMapping, currentCodex?.identity ?? null);
+  const detailCodexReady = hasCodexReadyLabel(detailTask);
+  const detailEligibility = detailTask?.threadBinding
+    ? detailTask.continuationEligibility
+    : detailTask?.claimEligibility;
+  const detailEligibilityReasons = detailEligibility?.eligible === false
+    ? detailEligibility.reasons.filter((reason) => (
+        reason !== "MISSING_CODEX_READY" && reason !== "ALREADY_BOUND"
+      ))
+    : [];
+
+  useEffect(() => {
+    if (!isLinearProject || !routeProjectId || !detailIdentifier) {
+      setDetailTask(null);
+      setDetailError(null);
+      return;
+    }
+    const controller = new AbortController();
+    setDetailError(null);
+    void listTasks(routeProjectId, controller.signal)
+      .then((tasks) => {
+        if (controller.signal.aborted) return;
+        const wanted = detailIdentifier.trim().toUpperCase();
+        const nextTask = tasks.find((task) => (
+          task.source === "linear"
+          && (task.externalKey ?? task.identifier).trim().toUpperCase() === wanted
+        )) ?? null;
+        setDetailTask(nextTask);
+      })
+      .catch((caught) => {
+        if (controller.signal.aborted) return;
+        setDetailTask(null);
+        setDetailError(errorMessage(caught));
+      });
+    return () => controller.abort();
+  }, [detailIdentifier, isLinearProject, routeProjectId]);
 
   useEffect(() => {
     document.documentElement.dataset.linearProject = String(isLinearProject);
@@ -218,6 +267,24 @@ export function LinearIntegrationExtension() {
     }
   }
 
+  async function toggleDetailCodexReady() {
+    if (!detailTask || savingCodexReady) return;
+    setSavingCodexReady(true);
+    setDetailError(null);
+    try {
+      const nextTask = await setLinearCodexReady(
+        detailTask.id,
+        detailTask.version,
+        !detailCodexReady,
+      );
+      setDetailTask(nextTask);
+    } catch (caught) {
+      setDetailError(errorMessage(caught));
+    } finally {
+      setSavingCodexReady(false);
+    }
+  }
+
   function saveCurrentCodexMapping() {
     if (!routeProjectId || !currentCodex) return;
     const nextMappings = {
@@ -235,6 +302,14 @@ export function LinearIntegrationExtension() {
     window.location.reload();
   }
 
+  const detailCodexReadyTitle = detailCodexReady
+    ? `移除 Linear 的 codex-ready label，停止讓 Codex 自動認領此 Issue${
+        detailEligibilityReasons.length > 0
+          ? `。目前其他 gate：${detailEligibilityReasons.join(", ")}`
+          : ""
+      }`
+    : "在 Linear 套用 codex-ready label；只有其他 gate 也通過時 Codex 才能自動認領";
+
   return (
     <>
       {menuTarget && createPortal(
@@ -251,8 +326,11 @@ export function LinearIntegrationExtension() {
 
       {headerTarget && isLinearProject && createPortal(
         <>
-          <span className="linear-readonly-badge" title="Linear 是此專案的任務來源">
-            Linear · 唯讀
+          <span
+            className="linear-source-badge"
+            title="Linear 是此專案的任務來源；受控操作會寫回 Linear"
+          >
+            Linear · 來源
           </span>
           {currentCodex && (
             <button
@@ -278,6 +356,33 @@ export function LinearIntegrationExtension() {
           </button>
         </>,
         headerTarget,
+      )}
+
+      {detailActionsTarget && isLinearProject && detailTask && createPortal(
+        <>
+          <button
+            className={`detail-copy-action linear-codex-ready-action${detailCodexReady ? " is-ready" : ""}`}
+            type="button"
+            disabled={savingCodexReady}
+            aria-pressed={detailCodexReady}
+            title={detailCodexReadyTitle}
+            onClick={() => void toggleDetailCodexReady()}
+          >
+            <span className="detail-copy-action-icon" aria-hidden="true">
+              <RelationIcon color="currentColor" size={16} />
+            </span>
+            <span className="detail-copy-action-label">
+              {savingCodexReady ? "更新中…" : detailCodexReady ? "取消 Codex" : "允許 Codex"}
+            </span>
+            <span className="linear-codex-ready-state">
+              {detailCodexReady ? "codex-ready" : "需明確放行"}
+            </span>
+          </button>
+          {detailError && (
+            <span className="linear-codex-ready-error" role="alert">{detailError}</span>
+          )}
+        </>,
+        detailActionsTarget,
       )}
 
       {dialogOpen && (
