@@ -50,6 +50,10 @@ function issue(overrides = {}) {
     externalUrl: "https://linear.app/example/issue/RIB-100/test",
     createdAt: "2026-08-27T00:00:00.000Z",
     updatedAt: "2026-08-27T00:01:00.000Z",
+    linearDependencies: {
+      complete: true,
+      blockedBy: [],
+    },
     nativeRef: {
       issueId: "issue-1",
       issueIdentifier: "RIB-100",
@@ -61,6 +65,7 @@ function issue(overrides = {}) {
       projectName: "Linear Taskboard",
       parentId: null,
       parentIdentifier: null,
+      dependenciesComplete: true,
     },
     project: {
       id: "linear-project-1",
@@ -69,6 +74,25 @@ function issue(overrides = {}) {
       teamId: "team-1",
       teamKey: "RIB",
     },
+    ...overrides,
+  };
+}
+
+function blocker(overrides = {}) {
+  return {
+    issueId: "blocker-1",
+    identifier: "RIB-90",
+    title: "Prepare schema",
+    url: "https://linear.app/example/issue/RIB-90/prepare-schema",
+    stateId: "state-progress",
+    stateType: "started",
+    stateName: "In Progress",
+    status: "in_progress",
+    resolved: false,
+    teamId: "team-1",
+    teamKey: "RIB",
+    projectId: "project-1",
+    projectName: "Linear Taskboard",
     ...overrides,
   };
 }
@@ -104,11 +128,14 @@ test("Linear projection decorates projected projects and tasks with native refs"
     assert.equal(task.externalKey, "RIB-100");
     assert.equal(task.nativeRef.issueId, "issue-1");
     assert.equal(task.nativeRef.teamId, "team-1");
+    assert.equal(task.linearDependencies.complete, true);
+    assert.equal(task.linearDependencies.unblocked, true);
 
     const listed = database.listTasks({ projectId: "linear-project-1" });
     assert.equal(listed.length, 1);
     assert.equal(listed[0].source, "linear");
     assert.equal(listed[0].nativeRef.issueIdentifier, "RIB-100");
+    assert.equal(listed[0].linearDependencies.unresolvedCount, 0);
   });
 });
 
@@ -133,6 +160,102 @@ test("Linear projection reconciles authoritative fields without replacing local 
     assert.equal(second.priority, "urgent");
     assert.deepEqual(second.labels, ["codex-ready", "phase-1"]);
     assert.ok(second.version > first.version);
+  });
+});
+
+test("Linear projection keeps external blockers even when the blocker is outside the projected scope", async () => {
+  await withDatabase(async (database) => {
+    await database.syncLinearSnapshot(snapshot([issue({
+      linearDependencies: {
+        complete: true,
+        blockedBy: [blocker({
+          issueId: "external-blocker",
+          identifier: "OPS-12",
+          projectId: "different-project",
+          projectName: "Operations",
+          teamId: "team-ops",
+          teamKey: "OPS",
+        })],
+      },
+    })]));
+
+    const task = database.getTask("LINEAR:ORIGIN:issue-1");
+    assert.equal(task.linearDependencies.complete, true);
+    assert.equal(task.linearDependencies.unblocked, false);
+    assert.equal(task.linearDependencies.unresolvedCount, 1);
+    assert.equal(task.linearDependencies.blockedBy[0].identifier, "OPS-12");
+    assert.equal(task.linearDependencies.blockedBy[0].projectName, "Operations");
+    assert.equal(task.linearDependencies.blockedBy[0].taskId, null);
+  });
+});
+
+test("Linear projection links blockers to projected tasks without requiring same-project task_relations", async () => {
+  await withDatabase(async (database) => {
+    const blockerIssue = issue({
+      id: "LINEAR:ORIGIN:blocker-1",
+      identifier: "LINEAR:ORIGIN:blocker-1",
+      title: "Prepare schema",
+      externalId: "blocker-1",
+      externalKey: "RIB-90",
+      status: "in_progress",
+      sortOrder: 512,
+    });
+    const blockedIssue = issue({
+      linearDependencies: {
+        complete: true,
+        blockedBy: [blocker()],
+      },
+    });
+
+    await database.syncLinearSnapshot(snapshot([blockedIssue, blockerIssue]));
+
+    const task = database.getTask("LINEAR:ORIGIN:issue-1");
+    assert.equal(task.linearDependencies.blockedBy[0].taskId, "LINEAR:ORIGIN:blocker-1");
+    assert.equal(task.linearDependencies.unblocked, false);
+  });
+});
+
+test("Linear dependency readiness fails closed when the blocker relation page is incomplete", async () => {
+  await withDatabase(async (database) => {
+    await database.syncLinearSnapshot(snapshot([issue({
+      linearDependencies: {
+        complete: false,
+        blockedBy: [],
+      },
+      nativeRef: {
+        ...issue().nativeRef,
+        dependenciesComplete: false,
+      },
+    })]));
+
+    const task = database.getTask("LINEAR:ORIGIN:issue-1");
+    assert.equal(task.linearDependencies.complete, false);
+    assert.equal(task.linearDependencies.unresolvedCount, 0);
+    assert.equal(task.linearDependencies.unblocked, false);
+  });
+});
+
+test("Linear projection clears blockers when Linear no longer reports an active blocks relation", async () => {
+  await withDatabase(async (database) => {
+    await database.syncLinearSnapshot(snapshot([issue({
+      linearDependencies: {
+        complete: true,
+        blockedBy: [blocker()],
+      },
+    })]));
+    assert.equal(database.getTask("LINEAR:ORIGIN:issue-1").linearDependencies.unblocked, false);
+
+    await database.syncLinearSnapshot(snapshot([issue({
+      linearDependencies: {
+        complete: true,
+        blockedBy: [],
+      },
+      updatedAt: "2026-08-27T00:03:00.000Z",
+    })]));
+
+    const task = database.getTask("LINEAR:ORIGIN:issue-1");
+    assert.equal(task.linearDependencies.unblocked, true);
+    assert.deepEqual(task.linearDependencies.blockedBy, []);
   });
 });
 
