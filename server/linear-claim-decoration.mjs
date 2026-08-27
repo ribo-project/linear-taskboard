@@ -5,6 +5,7 @@ function decorate(task) {
   return {
     ...task,
     claimEligibility: linearClaimEligibility(task),
+    continuationEligibility: linearClaimEligibility(task, { allowExistingBinding: true }),
   };
 }
 
