@@ -1,4 +1,5 @@
 import { ApiError, resolveTaskboardUrl } from "./api";
+import type { Task } from "./types";
 
 export interface LinearConnection {
   configured: boolean;
@@ -98,4 +99,19 @@ export async function syncLinearConnection(): Promise<LinearConnection> {
     method: "POST",
   });
   return data.connection;
+}
+
+export async function setLinearCodexReady(
+  taskId: string,
+  version: number,
+  enabled: boolean,
+): Promise<Task> {
+  const data = await request<{ task: Task }>(
+    `/api/tasks/${encodeURIComponent(taskId)}/linear-codex-ready`,
+    {
+      method: "POST",
+      body: JSON.stringify({ version, enabled }),
+    },
+  );
+  return data.task;
 }
