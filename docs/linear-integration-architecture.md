@@ -2,58 +2,77 @@
 
 ## Purpose
 
-This fork turns Codex Taskboard into a Codex-native Linear work surface.
+This fork turns the upstream Codex Taskboard into a Codex-native Linear work surface.
 
 The target experience is:
 
 1. Open Codex.
-2. Open the Linear Taskboard entry inside Codex.
-3. See Linear projects and issues without switching applications.
-4. Open an issue and start or resume the matching Codex conversation.
-5. Let Codex update implementation progress back to Linear.
-6. Keep human review as the default completion gate.
-
-The project must **not** become another project-management source of truth.
+2. Open Taskboard inside Codex.
+3. See projected Linear Projects and Issues.
+4. Map a Linear Project to the current Codex workspace.
+5. Explicitly authorize an Issue with `codex-ready`.
+6. Let Project Automation claim only runnable work.
+7. Write execution progress/results back to Linear.
+8. Stop at `In Review` for human acceptance.
 
 ## Core invariant
 
-**Linear is the authoritative source for project and issue data.**
+**Linear is the authoritative project-management source for Linear-backed projects.**
 
-Local SQLite may keep a projection/cache for UI performance, Codex thread binding, device workspace mapping, and transient runtime metadata. It must never become an independently editable copy of Linear issue state.
+The local SQLite database is not a second PM database. It is used for:
 
-For Linear-backed issues:
-
-- title, description, state, priority, labels, due date, assignee, project, relations, and comments originate in Linear;
-- edits to supported fields are write-through operations to Linear;
-- a failed Linear mutation must not be committed locally as if it succeeded;
-- reconciliation must overwrite stale cached Linear fields with the current Linear representation;
-- Codex-specific metadata that has no Linear equivalent may remain local.
-
-## What we keep from upstream
-
-The fork should preserve as much of the upstream product as possible:
-
-- Codex launcher and CDP integration;
-- embedded Taskboard entry inside the Codex UI;
-- React board/list/detail UI;
-- issue-to-Codex conversation routing;
+- a local projection/cache of Linear Project and Issue data;
 - Codex thread binding;
-- branch/worktree selection;
-- local AI chat integration;
-- project automation / auto-claim controls;
-- Windows/macOS/Linux packaging;
-- Markdown rendering and attachments where applicable;
-- optimistic local version handling for Codex-only metadata.
+- device-specific Codex project/workspace mapping;
+- local runtime metadata;
+- upstream Taskboard features that do not have a Linear equivalent.
 
-Keeping these pieces is the main reason to adapt the existing project instead of rebuilding a new UI from scratch.
+For Linear-backed Issues, a successful local-looking change must never be treated as authoritative unless the corresponding Linear write succeeds.
 
-## What changes
+## High-level architecture
 
-### Source model
+```text
+Linear GraphQL API
+       ↓
+Linear client
+       ↓
+Linear integration / mapping
+       ↓
+SQLite projection decorator
+       ↓
+Existing Taskboard server/API/UI
+       ↓
+Existing Codex launcher / injection / Skill / automation
+       ↓
+Codex project + thread + worktree
+       ↓
+Git / GitHub
+       ↓
+Linear comment + In Review
+```
 
-The current source model supports local issues and Jira-backed issues. Linear will be added as a first-class external source.
+## What is preserved from upstream
 
-Target source types:
+The fork intentionally keeps the upstream implementation wherever possible:
+
+- React board/list/detail UI;
+- local Taskboard HTTP service;
+- `taskctl` CLI;
+- `manage-taskboard` Skill;
+- Codex launcher and CDP integration;
+- issue-to-Codex routing;
+- thread binding;
+- branch/worktree support;
+- Project Automation;
+- quota-aware automation controls;
+- Tauri packaging for Windows/macOS/Linux;
+- Markdown and existing local Taskboard capabilities.
+
+Linear-specific behavior is added around these boundaries instead of rewriting the product.
+
+## Source types
+
+The shared source model supports:
 
 ```text
 local
@@ -61,29 +80,36 @@ jira
 linear
 ```
 
-Longer term, external trackers should use a common adapter contract instead of source-specific branches throughout the UI and database.
+Linear uses a dedicated external projection while preserving the generic Taskboard shape exposed to the UI and CLI.
 
-### Linear projects
+## Linear connection
 
-Unlike the current Jira integration, Linear should not be flattened into one global project.
+The initial implementation is single-user/local-first and uses a Linear Personal API Key.
 
-Each Linear Project should become a Taskboard project projection so that:
+The credential is:
 
-- project switching in Codex matches Linear;
-- a Linear project can be mapped to the correct local repository/workspace;
-- project-specific Codex automation settings remain meaningful;
-- multiple codebases can coexist in the same Linear workspace.
+- accepted only by the local service / `linearctl` setup path;
+- stored in the Taskboard data directory;
+- written atomically;
+- restricted to mode `0600` where supported;
+- never returned to the React UI;
+- never placed in Issue content, comments, Codex prompts, or Git commits.
 
-Issues without a Linear project may be placed in a stable synthetic project such as `Linear · No project`.
+The stored connection config includes optional Team / Project scope and whether synchronization should be limited to Issues assigned to the current Linear user.
 
-### Native reference metadata
+Future multi-user distribution may add OAuth, but OAuth is not required for the current local prototype.
 
-A Linear issue needs provider-native metadata that the generic Taskboard model cannot safely infer:
+## Linear project projection
+
+Each Linear Project becomes its own Taskboard Project projection.
+
+This is required because Project-level Codex workspace mapping and Project Automation must remain meaningful across multiple repositories.
+
+A projected Issue keeps provider-native metadata such as:
 
 ```text
 issueId
 issueIdentifier
-organizationId/originId
 teamId
 teamKey
 projectId
@@ -94,56 +120,23 @@ parentId
 parentIdentifier
 ```
 
-This metadata is required for correct write-through mutations, workflow-state resolution, project mapping, and later dependency handling.
+These values are used for write-through and must not be inferred from display strings.
 
-It must not be encoded only into display strings.
+## Synchronization
 
-## Authentication
+The current desktop flow uses conservative synchronization rather than aggressive polling:
 
-### Phase 1: Personal API key
+- initial sync;
+- manual sync;
+- periodic refresh where appropriate.
 
-For the initial single-user/local prototype:
+The Linear client uses cursor pagination and handles GraphQL `errors` independently of HTTP status.
 
-- use a Linear personal API key;
-- store it only in the local Taskboard data directory;
-- write the config atomically;
-- set the config file to mode `0600` where supported;
-- never send the API key to the React web UI;
-- never place the key in issue descriptions, comments, logs, Git commits, or Codex prompts.
+A production multi-user mode can later add webhooks when a reachable HTTPS endpoint exists.
 
-This mirrors the local-only credential posture already used by the Jira connection.
+## Status mapping
 
-### Later: OAuth
-
-Before distributing this to multiple users, replace or supplement personal API keys with Linear OAuth 2.0.
-
-OAuth should be preferred for multi-user installations and should use the smallest practical scopes. Agent/app actor authorization should be considered when we want Linear mutations to be visibly attributed to the integration rather than a human user.
-
-## Synchronization strategy
-
-### Initial prototype
-
-The first implementation can use explicit/manual refresh plus a conservative refresh interval.
-
-The client must:
-
-- use cursor pagination;
-- handle GraphQL `errors` even when HTTP status is 200;
-- recognize rate-limit errors;
-- avoid one-request-per-issue patterns;
-- filter by configured teams/projects after fetching when necessary.
-
-### Production direction
-
-Linear explicitly recommends avoiding aggressive polling. A production-ready version should move toward webhooks for issue/comment/label changes when a reachable HTTPS endpoint is available.
-
-Local-only desktop mode cannot receive Linear webhooks directly without a public relay/tunnel, so polling/manual refresh remains a valid fallback for the desktop prototype.
-
-## Linear → Taskboard status mapping
-
-Linear workflow categories are broader than Taskboard's canonical states.
-
-Default mapping:
+Linear workflow types are mapped into Taskboard canonical states.
 
 | Linear | Taskboard |
 | --- | --- |
@@ -155,13 +148,25 @@ Default mapping:
 | Completed | `done` |
 | Canceled / Duplicate | `canceled` |
 
-The adapter should prefer Linear's workflow `type` and use status names only to distinguish Taskboard sub-states such as `in_review` and `blocked` inside Linear's broader `started` category.
+When Taskboard writes a state back to Linear, it resolves the destination against that Issue's Team workflow states. Workflow-state IDs are never assumed to be shared across Teams.
 
-When writing a Taskboard state back to Linear, resolve the destination against that issue's team workflow states. Never assume workflow-state UUIDs are shared across teams.
+The current RIB workflow observed during implementation contains:
+
+```text
+Backlog
+Todo
+In Progress
+In Review
+Done
+Canceled
+Duplicate
+```
 
 ## Priority mapping
 
-| Linear numeric priority | Taskboard |
+The normalization layer uses Linear's numeric priority mapping:
+
+| Linear | Taskboard |
 | ---: | --- |
 | 0 | `none` |
 | 1 | `urgent` |
@@ -169,11 +174,112 @@ When writing a Taskboard state back to Linear, resolve the destination against t
 | 3 | `medium` |
 | 4 | `low` |
 
-## Codex thread binding
+A lower-level priority write-through helper exists, but the current Linear UI does not expose general property editing as an authoritative Linear editing surface yet.
 
-Thread binding stays local because it represents the relationship between a device's Codex environment and a Linear issue.
+## Comments
 
-The issue projection should retain:
+Linear comments are read from Linear when needed and created directly in Linear.
+
+They are not maintained as a second independently editable comment database for projected Issues.
+
+Codex uses Linear comments to report implementation summary, verification results, PR information, and remaining risks.
+
+## `codex-ready`
+
+Automatic execution authorization is represented by a real Linear Label:
+
+```text
+codex-ready
+```
+
+The Label is not a local Taskboard flag.
+
+When the user explicitly chooses **Allow Codex**:
+
+1. reuse an existing `codex-ready` Label case-insensitively when present;
+2. otherwise create it in Linear;
+3. add it incrementally to the Issue without overwriting other Labels;
+4. reconcile the projection.
+
+When the user chooses **Disable Codex**:
+
+1. remove only `codex-ready` when it exists;
+2. do not create the Label merely to disable it;
+3. keep unrelated Labels unchanged;
+4. reconcile the projection.
+
+Connecting or synchronizing Linear never silently applies `codex-ready`.
+
+## Dependency model
+
+Linear native Issue relations are authoritative for blockers.
+
+The projection stores dependency metadata separately from the upstream local relation model because Linear blockers can cross Project or Team boundaries.
+
+A projected Linear Issue includes a dependency snapshot with enough information to determine whether blockers are resolved.
+
+### Fail-closed rule
+
+If blocker relation pagination/synchronization is incomplete, the dependency snapshot is marked incomplete and the Issue is **not claimable**.
+
+The system never converts "dependency data unavailable" into "no blockers".
+
+## Claim eligibility
+
+The server calculates claim eligibility rather than asking the Skill or prompt to reconstruct it.
+
+For a new Linear claim, the Task JSON contains:
+
+```json
+{
+  "claimEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}
+```
+
+New-claim eligibility requires at minimum:
+
+```text
+source = linear
+status = todo
+codex-ready present
+dependency snapshot complete
+all blockers resolved
+not archived
+no existing/conflicting binding
+```
+
+Possible fail-closed reasons include:
+
+```text
+STATUS_NOT_TODO
+MISSING_CODEX_READY
+DEPENDENCIES_INCOMPLETE
+BLOCKED_BY_DEPENDENCY
+ALREADY_BOUND
+ARCHIVED
+```
+
+## Continuation eligibility
+
+An Issue that already has a complete Codex binding must not be rejected merely because it is already bound.
+
+For that case the server exposes:
+
+```json
+{
+  "continuationEligibility": {
+    "eligible": true,
+    "reasons": []
+  }
+}
+```
+
+Continuation still requires `codex-ready`, complete dependency data, clear blockers, and valid Todo state while the continuation is being re-acquired.
+
+A complete binding contains:
 
 ```text
 threadId
@@ -183,154 +289,219 @@ codexHostId
 workspacePath
 ```
 
-The first Codex session that claims an issue owns that binding until it hands off, stops, or is explicitly replaced by the user. This prevents two Codex conversations from silently working the same issue.
+The runnable-Todo policy additionally rejects a task when the top-level `threadId` disagrees with `threadBinding.threadId`.
 
-The Linear issue itself should receive human-readable progress comments and PR links, not opaque local thread identifiers unless there is a clear user-facing reason.
+## Codex workspace mapping
 
-## Start-in-Codex flow
+Each projected Linear Project can be mapped to the current Codex project/workspace.
 
-Target interaction:
+The fork reuses the upstream storage contract instead of introducing another mapping database:
 
 ```text
-Linear issue in embedded board
-        ↓
-Start in Codex
-        ↓
-Resolve Linear project → local Codex project/workspace
-        ↓
-Create/open Codex conversation
-        ↓
-Bind issue ↔ thread
-        ↓
-Move eligible issue to Linear Started/In Progress
-        ↓
-Load issue + latest comments + repo instructions
-        ↓
-Implement and validate
-        ↓
-Write result/PR/test evidence to Linear
-        ↓
-Move issue to In Review
-        ↓
-Human accepts → Done
+taskboard.projectCodexIdentities.v1
+taskboard.deviceWorkspacePaths.v1
 ```
 
-Default policy: Codex does not autonomously mark an implementation issue Done unless the user explicitly enables that behavior later.
-
-## Automation direction
-
-The upstream project already contains project-level Auto-claim controls with interval, model, reasoning effort, pause state, and quota awareness. Reuse this before introducing a separate dispatcher service.
-
-Target automatic eligibility policy:
+The mapping supports local and remote/SSH Codex projects by retaining:
 
 ```text
-source = linear
-AND status = todo
-AND label contains codex-ready
-AND all blocking issues are completed/canceled as appropriate
-AND project has a valid Codex workspace mapping
-AND issue has no active thread binding owned by another run
+codexProjectId
+codexProjectKind
+codexHostId
+workspacePath
 ```
 
-When eligible, automation may start a Codex task and move the Linear issue into the team's first applicable Started/In Progress state.
+## Claim write-through
 
-This keeps the architecture simple:
+The critical transition is `Todo → In Progress`.
+
+Before Linear is mutated, the server rechecks:
+
+- optimistic version;
+- current eligibility;
+- dependency completeness;
+- unresolved blockers;
+- `codex-ready`;
+- binding consistency.
+
+A stale version or invalid gate returns a conflict before calling Linear.
+
+After a successful Linear state mutation, the projection is reconciled.
+
+## Skill behavior
+
+The bundled `manage-taskboard` Skill is Linear-aware.
+
+For Linear Issues it treats server-calculated eligibility as authoritative:
+
+- unbound Issue → `claimEligibility`;
+- bound continuation → `continuationEligibility`.
+
+It does not override a false server result by reinterpreting local Taskboard relations.
+
+The Skill still preserves the upstream lifecycle rules:
+
+- do not execute Backlog work;
+- claim before implementation;
+- use optimistic versions;
+- preserve complete bindings;
+- verify and report work;
+- finish at `In Review` by default;
+- do not autonomously mark implementation work `Done` without explicit acceptance policy.
+
+## Automation selection
+
+The automation prompt is source-aware:
 
 ```text
-Linear
-  ↓
-Linear adapter / projection
-  ↓
-Existing Taskboard UI + existing project automation
-  ↓
-Codex
-  ↓
-Git / GitHub
-  ↓
+Linear + unbound
+→ claimEligibility.eligible
+
+Linear + complete existing binding
+→ continuationEligibility.eligible
+
+Non-Linear
+→ existing local relations.blockedBy behavior
+```
+
+The Issue is read again immediately before the claim transition so the automation cannot rely only on an earlier list snapshot.
+
+## Runnable Todo policy
+
+The upstream automation host originally distinguished only whether any Todo existed.
+
+This fork adds:
+
+```text
+hasTodo
+hasRunnableTodo
+```
+
+For Linear:
+
+- unbound → runnable only when `claimEligibility.eligible === true`;
+- complete bound continuation → runnable only when `continuationEligibility.eligible === true`;
+- missing/incomplete/mismatched binding → fail closed.
+
+For non-Linear tasks, the existing local blocker rule remains.
+
+### Temporary automation pause
+
+When Todo exists but none is runnable:
+
+```text
+hasTodo = true
+hasRunnableTodo = false
+```
+
+the expensive Codex automation is paused with a temporary `no-runnable` reason.
+
+This pause **does not set `enabledByUser = false`**.
+
+The lightweight policy timer keeps checking and can resume the Codex automation when work becomes runnable.
+
+Temporary pause reasons are persisted so a restart does not confuse a policy pause with a user-disabled automation.
+
+Quota pauses, no-Todo behavior, and externally/manual paused automation keep separate semantics.
+
+## Linear UI contract
+
+Projected Linear Projects are labeled:
+
+```text
+Linear · Source
+```
+
+The UI exposes supported controlled operations such as:
+
+- Linear connection/sync;
+- Codex workspace mapping;
+- `Allow Codex` / `Disable Codex`;
+- comment flow;
+- opening/resuming Codex work.
+
+Local task creation is hidden for Linear-backed Projects.
+
+Fields without complete Linear write-through are presented as read-only so the UI does not imply that a local-only edit has changed Linear.
+
+## Current end-to-end lifecycle
+
+```text
+Linear Todo
+  + codex-ready
+  + dependencies clear
+  + workspace mapped
+        ↓
+hasRunnableTodo = true
+        ↓
+Project Automation
+        ↓
+re-read Issue
+        ↓
+claim gate
+        ↓
+Linear In Progress
+        ↓
+create/resume Codex thread
+        ↓
+implementation + verification
+        ↓
+Linear result comment
+        ↓
 Linear In Review
+        ↓
+human review
+        ↓
+Done
 ```
 
-OpenAI Symphony remains an optional future path if we need a long-running multi-worker orchestrator. It is not required for the first useful version.
+## Current implementation status
 
-## Implementation phases
+### Implemented
 
-### Phase 0 — Foundation
+- [x] Linear config store.
+- [x] Linear GraphQL client.
+- [x] Linear Project/Issue projection.
+- [x] Linear connection and sync UI.
+- [x] `linearctl` setup/sync/status/clear CLI.
+- [x] Team-specific status resolution.
+- [x] Linear comments.
+- [x] `codex-ready` write-through.
+- [x] Linear blocker projection including cross-Project blockers.
+- [x] fail-closed dependency completeness.
+- [x] `claimEligibility`.
+- [x] `continuationEligibility`.
+- [x] server-side claim gate before Linear mutation.
+- [x] Codex Project/workspace mapping.
+- [x] Linear-aware Skill selection rules.
+- [x] source-aware automation prompt.
+- [x] runnable-Todo automation host policy.
+- [x] temporary automation pause/resume semantics.
+- [x] controlled read-only UI for unsupported Linear mutations.
 
-- [x] Fork upstream as `ribo-project/linear-taskboard`.
-- [x] Add a dedicated development branch.
-- [x] Add local Linear connection config store.
-- [x] Add a minimal Linear GraphQL client.
-- [x] Add workflow/priority normalization helpers.
-- [x] Add unit tests for the new independent modules.
-- [x] Document source-of-truth and integration boundaries.
+### Still pending / intentionally incomplete
 
-### Phase 1 — Read-only Linear board
+- [ ] First complete Windows Codex Desktop smoke test of the real Linear → Codex → Linear workflow.
+- [ ] General UI write-through for title/description/assignee/due date/relations/attachments.
+- [ ] OAuth/multi-user authorization.
+- [ ] Webhook/relay synchronization.
+- [ ] Fork-specific signed desktop release process.
+- [ ] broader production hardening after local desktop validation.
 
-- [ ] Add `linear` as a supported source in shared/web types.
-- [ ] Add database projection tables/columns for Linear native refs.
-- [ ] Add `syncLinearSnapshot` (or generic external-tracker sync) to the database layer.
-- [ ] Create one Taskboard project projection per Linear Project.
-- [ ] Add a synthetic project for issues with no Linear project.
-- [ ] Add local server routes for connection status/configuration/sync.
-- [ ] Add a Linear connection UI.
-- [ ] Show Linear projects/issues in the existing Codex Taskboard UI.
-- [ ] Disable unsupported local-only issue mutations until write-through exists.
+## Cloud mode
 
-Acceptance gate: a local user can connect Linear, refresh, switch among Linear projects, open issues, and follow links without creating a divergent local copy.
+The upstream repository contains a Cloudflare/D1 collaboration mode. It remains in the tree for upstream compatibility, but it is not the current authoritative architecture for Linear-backed Projects.
 
-### Phase 2 — Write-through issue operations
+Do not introduce a second writable D1 copy of Linear Issue truth.
 
-- [ ] Status update with team-specific workflow resolution.
-- [ ] Priority update.
-- [ ] Title/description update.
-- [ ] Due date update.
-- [ ] Comment create/read synchronization.
-- [ ] Label mutation after label-ID resolution rules are defined.
-- [ ] Reconcile after every successful write.
+## Non-goals
 
-Acceptance gate: supported edits made in Codex appear in Linear and survive a full resync with no local divergence.
-
-### Phase 3 — Codex execution binding
-
-- [ ] Map Linear project → Codex project/workspace.
-- [ ] Start/resume Codex conversation from a Linear issue.
-- [ ] Persist thread binding locally.
-- [ ] Move issue to In Progress on successful claim.
-- [ ] Load issue/comments into the execution prompt/skill.
-- [ ] Post implementation/test/PR result back to Linear.
-- [ ] Move completed worker result to In Review.
-
-Acceptance gate: the manual "go to Linear, copy the issue ID, tell Codex to start" step is eliminated.
-
-### Phase 4 — Auto-claim
-
-- [ ] Reuse existing Project Automation UI.
-- [ ] Add `codex-ready` eligibility filter.
-- [ ] Add dependency/blocker check.
-- [ ] Add duplicate claim protection.
-- [ ] Add failure/backoff policy.
-- [ ] Keep human review as the default final gate.
-
-Acceptance gate: approved Linear issues can progress from Todo to a Codex run and then to In Review without manual prompting.
-
-### Phase 5 — Distribution / multi-user hardening
-
-- [ ] OAuth 2.0.
-- [ ] Optional app actor authorization.
-- [ ] Webhook/relay strategy.
-- [ ] Secret redaction tests.
-- [ ] Signed Windows/macOS releases as required.
-- [ ] Upstream sync strategy and conflict policy.
-
-## Non-goals for the first version
-
-- replacing Linear project management;
-- creating a new cloud control plane;
-- maintaining a second authoritative issue database;
+- replacing Linear as PM;
+- creating a second authoritative issue database;
 - automatically merging PRs;
-- automatically marking every issue Done;
-- multi-agent orchestration across many hosts;
-- public SaaS hosting;
+- marking all work `Done` without human review;
+- public SaaS hosting in the current phase;
+- Symphony/multi-worker orchestration before the single-worker flow is proven;
 - replacing GitHub as the code/PR system.
 
 ## Upstream maintenance rule
@@ -339,9 +510,9 @@ Keep the fork as close to upstream as practical.
 
 Prefer:
 
-1. new Linear-specific modules;
-2. a small generic adapter interface;
-3. narrow source-aware changes in database/API/UI code;
-4. tests around every modified upstream boundary.
+1. Linear-specific modules;
+2. decorators/adapters around upstream boundaries;
+3. narrow source-aware changes;
+4. focused regression tests for modified boundaries.
 
-Avoid broad renaming or visual rewrites until the Linear workflow is stable. This will make future upstream merges significantly easier.
+Avoid broad renaming or UI rewrites that make future upstream merges unnecessarily difficult.
