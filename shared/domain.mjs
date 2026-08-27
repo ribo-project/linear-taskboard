@@ -8,9 +8,11 @@ export const TASK_STATUSES = [
   "canceled",
 ];
 export const TASK_PRIORITIES = ["none", "urgent", "high", "medium", "low"];
+export const TASK_SOURCES = ["local", "jira", "linear"];
 
 export const DEFAULT_PROJECT_ID = "local";
 export const JIRA_PROJECT_ID = "jira-my-tasks";
+export const LINEAR_NO_PROJECT_ID = "linear-no-project";
 export const DEFAULT_LABEL_NAMES = [
   "缺陷",
   "特性",
@@ -31,4 +33,8 @@ export function isTaskStatus(value) {
 
 export function isTaskPriority(value) {
   return TASK_PRIORITIES.includes(value);
+}
+
+export function isTaskSource(value) {
+  return TASK_SOURCES.includes(value);
 }
