@@ -19,7 +19,7 @@ test("Linear integration attaches to the existing project menu and header", () =
   assert.match(extensionSource, /\.project-menu-actions/);
   assert.match(extensionSource, /\.header-actions/);
   assert.match(extensionSource, /連接 Linear/);
-  assert.match(extensionSource, /Linear · 唯讀/);
+  assert.match(extensionSource, /Linear · 來源/);
   assert.match(extensionSource, /configureLinearConnection/);
   assert.match(extensionSource, /syncLinearConnection/);
 });
@@ -36,10 +36,25 @@ test("Linear project can map to the current Codex workspace using the upstream s
   assert.match(extensionSource, /workspacePath/);
 });
 
-test("Linear read-only presentation hides local issue creation controls", () => {
+test("Linear issue detail exposes explicit codex-ready write-through without changing the upstream detail component", () => {
+  assert.match(extensionSource, /\.detail-primary-actions/);
+  assert.match(extensionSource, /\.detail-copy-identifier/);
+  assert.match(extensionSource, /listTasks\(routeProjectId/);
+  assert.match(extensionSource, /setLinearCodexReady/);
+  assert.match(extensionSource, /允許 Codex/);
+  assert.match(extensionSource, /取消 Codex/);
+  assert.match(extensionSource, /codex-ready/);
+  assert.match(extensionSource, /detailTask\.version/);
+  assert.match(extensionSource, /claimEligibility/);
+  assert.match(extensionSource, /continuationEligibility/);
+});
+
+test("Linear source presentation hides local issue creation controls and styles controlled write-through actions", () => {
   assert.match(styleSource, /data-linear-project="true"/);
   assert.match(styleSource, /\.header-create-button/);
   assert.match(styleSource, /\.add-task-button/);
+  assert.match(styleSource, /\.linear-source-badge/);
   assert.match(styleSource, /\.linear-map-button/);
+  assert.match(styleSource, /\.linear-codex-ready-action/);
   assert.match(styleSource, /\.linear-mapping-dialog/);
 });
