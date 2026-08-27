@@ -161,3 +161,87 @@ test("Linear client exposes issue update and comment mutations", async () => {
   assert.equal(comment.id, "comment-1");
   assert.equal(operations.length, 2);
 });
+
+test("Linear client lists issue labels with pagination and creates a workspace label", async () => {
+  const operations = [];
+  const client = createLinearClient({
+    apiKey: "lin_api_test",
+    fetch: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      operations.push(body);
+      if (body.query.includes("LinearTaskboardIssueLabels")) {
+        const after = body.variables.after;
+        return jsonResponse({
+          data: {
+            issueLabels: after === null
+              ? {
+                  nodes: [{ id: "label-1", name: "bug", color: "#ff0000", description: null }],
+                  pageInfo: { hasNextPage: true, endCursor: "cursor-1" },
+                }
+              : {
+                  nodes: [{ id: "label-2", name: "codex-ready", color: "#5E6AD2", description: "ready" }],
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                },
+          },
+        });
+      }
+      if (body.query.includes("LinearTaskboardCreateIssueLabel")) {
+        return jsonResponse({
+          data: {
+            issueLabelCreate: {
+              success: true,
+              issueLabel: {
+                id: "label-created",
+                name: body.variables.input.name,
+                color: body.variables.input.color ?? null,
+                description: body.variables.input.description ?? null,
+              },
+            },
+          },
+        });
+      }
+      throw new Error("Unexpected operation");
+    },
+  });
+
+  const labels = await client.listIssueLabels();
+  const created = await client.createIssueLabel({
+    name: "codex-ready",
+    color: "#5E6AD2",
+    description: "Allows Codex Taskboard automation to claim this issue automatically.",
+  });
+
+  assert.deepEqual(labels.map((label) => label.name), ["bug", "codex-ready"]);
+  assert.deepEqual(
+    operations.filter((operation) => operation.query.includes("LinearTaskboardIssueLabels"))
+      .map((operation) => operation.variables.after),
+    [null, "cursor-1"],
+  );
+  assert.equal(created.id, "label-created");
+  assert.equal(Object.hasOwn(operations.at(-1).variables.input, "teamId"), false);
+});
+
+test("Linear client supports incremental issue label updates", async () => {
+  let variables = null;
+  const client = createLinearClient({
+    apiKey: "lin_api_test",
+    fetch: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      variables = body.variables;
+      return jsonResponse({
+        data: {
+          issueUpdate: {
+            success: true,
+            issue: { id: "issue-1", identifier: "RIB-1", updatedAt: "now" },
+          },
+        },
+      });
+    },
+  });
+
+  await client.updateIssue("issue-1", { addedLabelIds: ["label-1"], removedLabelIds: ["label-2"] });
+  assert.deepEqual(variables, {
+    issueId: "issue-1",
+    input: { addedLabelIds: ["label-1"], removedLabelIds: ["label-2"] },
+  });
+});
