@@ -68,7 +68,7 @@ test("bound Linear Todo uses continuationEligibility instead of claimEligibility
   }), false);
 });
 
-test("legacy or incomplete Linear bindings fail closed", () => {
+test("legacy, incomplete, or inconsistent Linear bindings fail closed", () => {
   assert.equal(isRunnableTodo(baseTodo({
     source: "linear",
     threadId: "legacy-thread",
@@ -77,6 +77,12 @@ test("legacy or incomplete Linear bindings fail closed", () => {
   assert.equal(isRunnableTodo(baseTodo({
     source: "linear",
     threadBinding: binding({ workspacePath: "" }),
+    continuationEligibility: { eligible: true, reasons: [] },
+  })), false);
+  assert.equal(isRunnableTodo(baseTodo({
+    source: "linear",
+    threadId: "thread-other",
+    threadBinding: binding(),
     continuationEligibility: { eligible: true, reasons: [] },
   })), false);
 });
