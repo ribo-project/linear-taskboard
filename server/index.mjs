@@ -2,34 +2,60 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { createTaskboardServer, resolveHost, resolvePort } from "./app.mjs";
+import {
+  createTaskboardServer as createBaseTaskboardServer,
+  resolveHost,
+  resolvePort,
+} from "./app.mjs";
 import { createLinearConfigStore } from "./linear-config.mjs";
 import { createLinearIntegration } from "./linear-integration.mjs";
+import { installLinearLocalRoutes } from "./linear-local-routes.mjs";
 import { installLinearProjection } from "./linear-projection.mjs";
 
-export { createTaskboardServer, resolveHost, resolvePort, resolveServerOptions } from "./app.mjs";
+export { resolveHost, resolvePort, resolveServerOptions } from "./app.mjs";
 
-async function installLinearRuntime(app) {
+export function createTaskboardServer(options = {}) {
+  const app = createBaseTaskboardServer(options);
   const projection = installLinearProjection(app.database);
-  const configStore = createLinearConfigStore({
-    configPath: path.join(app.options.dataDirectory, "linear-connection.json"),
+  const configStore = options.linearConfigStore ?? createLinearConfigStore({
+    configPath: options.linearConfigPath
+      ?? path.join(app.options.dataDirectory, "linear-connection.json"),
   });
-  const integration = createLinearIntegration({ configStore, projection });
-  const connection = await integration.status();
-  if (!connection.configured) return { integration, connection };
+  const integration = createLinearIntegration({
+    configStore,
+    projection,
+    fetch: options.linearFetch ?? globalThis.fetch,
+    ...(options.linearEndpoint ? { endpoint: options.linearEndpoint } : {}),
+  });
 
-  try {
-    const synced = await integration.sync({ force: true, archiveMissing: true });
-    return { integration, connection: synced.connection };
-  } catch (error) {
-    console.warn(`Linear startup sync failed: ${error instanceof Error ? error.message : String(error)}`);
-    return { integration, connection };
-  }
+  installLinearLocalRoutes(app, integration);
+  app.linearIntegration = integration;
+
+  const listen = app.listen.bind(app);
+  let startupSync = null;
+  app.listen = async (...args) => {
+    if (!startupSync) {
+      startupSync = (async () => {
+        const connection = await integration.status();
+        if (!connection.configured) return connection;
+        try {
+          const synced = await integration.sync({ force: true, archiveMissing: true });
+          return synced.connection;
+        } catch (error) {
+          console.warn(`Linear startup sync failed: ${error instanceof Error ? error.message : String(error)}`);
+          return connection;
+        }
+      })();
+    }
+    await startupSync;
+    return listen(...args);
+  };
+
+  return app;
 }
 
 async function main() {
   const app = createTaskboardServer();
-  await installLinearRuntime(app);
   const host = resolveHost();
   const listenFd = process.env.CODEX_TASKBOARD_LISTEN_FD === undefined
     ? null
