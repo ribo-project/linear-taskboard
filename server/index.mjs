@@ -7,6 +7,7 @@ import {
   resolveHost,
   resolvePort,
 } from "./app.mjs";
+import { installLinearClaimDecoration } from "./linear-claim-decoration.mjs";
 import { createLinearConfigStore } from "./linear-config.mjs";
 import { createLinearIntegration } from "./linear-integration.mjs";
 import { installLinearLocalRoutes } from "./linear-local-routes.mjs";
@@ -17,6 +18,7 @@ export { resolveHost, resolvePort, resolveServerOptions } from "./app.mjs";
 export function createTaskboardServer(options = {}) {
   const app = createBaseTaskboardServer(options);
   const projection = installLinearProjection(app.database);
+  installLinearClaimDecoration(app.database);
   const configStore = options.linearConfigStore ?? createLinearConfigStore({
     configPath: options.linearConfigPath
       ?? path.join(app.options.dataDirectory, "linear-connection.json"),
