@@ -24,6 +24,7 @@ export function isRunnableTodo(task) {
   }
 
   if (completeThreadBinding(task.threadBinding)) {
+    if (task.threadId !== task.threadBinding.threadId) return false;
     return task.continuationEligibility?.eligible === true;
   }
 
