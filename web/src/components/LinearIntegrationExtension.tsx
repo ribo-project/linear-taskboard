@@ -136,7 +136,7 @@ export function LinearIntegrationExtension() {
     };
     refreshTargets();
     const observer = new MutationObserver(refreshTargets);
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
   }, []);
 
