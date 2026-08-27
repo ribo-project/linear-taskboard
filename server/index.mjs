@@ -28,6 +28,10 @@ export function createTaskboardServer(options = {}) {
     projection,
     fetch: options.linearFetch ?? globalThis.fetch,
     ...(options.linearEndpoint ? { endpoint: options.linearEndpoint } : {}),
+    ...(options.linearOAuthClientId ? { oauthClientId: options.linearOAuthClientId } : {}),
+    ...(options.linearOAuthClientSecret ? { oauthClientSecret: options.linearOAuthClientSecret } : {}),
+    ...(options.linearOAuthRedirectUri ? { oauthRedirectUri: options.linearOAuthRedirectUri } : {}),
+    ...(options.linearOAuthFetch ? { oauthFetch: options.linearOAuthFetch } : {}),
   });
 
   installLinearLocalRoutes(app, integration);

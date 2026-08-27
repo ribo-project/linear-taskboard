@@ -3,6 +3,10 @@ import type { Task } from "./types";
 
 export interface LinearConnection {
   configured: boolean;
+  authType: "api-key" | "oauth" | null;
+  oauthClientConfigured: boolean;
+  oauthScope?: string | null;
+  oauthExpiresAt?: number | null;
   assignedToMeOnly: boolean;
   teamIds: string[];
   projectIds: string[];
@@ -22,6 +26,8 @@ export interface LinearConnection {
 
 const EMPTY_LINEAR_CONNECTION: LinearConnection = {
   configured: false,
+  authType: null,
+  oauthClientConfigured: false,
   assignedToMeOnly: true,
   teamIds: [],
   projectIds: [],
@@ -96,6 +102,17 @@ export async function configureLinearConnection(input: {
 
 export async function syncLinearConnection(): Promise<LinearConnection> {
   const data = await request<{ connection: LinearConnection }>("/api/local/linear-connection/sync", {
+    method: "POST",
+  });
+  return data.connection;
+}
+
+export function linearOAuthStartUrl(): string {
+  return resolveTaskboardUrl("/api/local/linear-oauth/start");
+}
+
+export async function revokeLinearConnection(): Promise<LinearConnection> {
+  const data = await request<{ connection: LinearConnection }>("/api/local/linear-oauth/revoke", {
     method: "POST",
   });
   return data.connection;

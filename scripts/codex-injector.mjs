@@ -43,7 +43,9 @@ const independentCodexProfilePath = process.env.CODEX_TASKBOARD_CODEX_PROFILE
   ? path.resolve(process.env.CODEX_TASKBOARD_CODEX_PROFILE)
   : process.platform === "linux"
     ? path.join(os.tmpdir(), "codex-taskboard-independent-profile-v2")
-    : "/private/tmp/codex-taskboard-independent-profile-v2";
+    : process.platform === "win32"
+      ? path.join(os.tmpdir(), "codex-taskboard-independent-profile-v2")
+      : "/private/tmp/codex-taskboard-independent-profile-v2";
 const sourceCodexProfilePath = process.env.CODEX_TASKBOARD_CODEX_SOURCE_PROFILE
   ? path.resolve(process.env.CODEX_TASKBOARD_CODEX_SOURCE_PROFILE)
   : null;
@@ -109,6 +111,37 @@ let quotaPoliciesLoadPromise = null;
 let quotaPoliciesWritePromise = Promise.resolve();
 const taskConversationAppServerTimeoutMs = 30_000;
 
+function windowsPowerShellPath() {
+  return path.join(
+    process.env.SystemRoot || "C:\\Windows",
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+}
+
+function defaultCodexAppPath() {
+  if (process.platform !== "win32") {
+    return process.platform === "linux" ? "/usr/bin/chatgpt" : "/Applications/ChatGPT.app";
+  }
+  if (process.env.CODEX_TASKBOARD_APP_PATH?.trim()) {
+    return path.resolve(process.env.CODEX_TASKBOARD_APP_PATH.trim());
+  }
+  const packageQuery = spawnSync(
+    windowsPowerShellPath(),
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "(Get-AppxPackage -Name OpenAI.Codex | Select-Object -First 1 -ExpandProperty InstallLocation)",
+    ],
+    { encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 },
+  );
+  const installLocation = packageQuery.status === 0 ? packageQuery.stdout.trim() : "";
+  return installLocation ? path.join(installLocation, "app", "ChatGPT.exe") : "ChatGPT.exe";
+}
+
 function parseArgs(argv) {
   const options = {
     port: defaultCodexDebuggingPort,
@@ -123,7 +156,7 @@ function parseArgs(argv) {
     startupToken: null,
     daemon: false,
     screenshot: null,
-    appPath: process.platform === "linux" ? "/usr/bin/chatgpt" : "/Applications/ChatGPT.app",
+    appPath: defaultCodexAppPath(),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -151,7 +184,7 @@ function parseArgs(argv) {
     else throw new Error(`Unknown option: ${arg}`);
   }
 
-  if (process.platform === "linux" && options.launch) options.cdpPipe = true;
+  if (process.platform !== "darwin" && options.launch) options.cdpPipe = true;
 
   if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535) {
     throw new Error("--port must be an integer between 1 and 65535");
@@ -978,7 +1011,7 @@ async function requestCodexAutomationViaCdp(cdp, executionContextId, method, par
       const requestId = ${JSON.stringify(requestId)};
       const bridge = window.electronBridge;
       if (!bridge || typeof bridge.sendMessageFromView !== "function") {
-        resolve({ ok: false, error: "当前 Codex 版本没有提供原生自动任务能力" });
+        resolve({ ok: false, error: "目前 Codex 版本沒有提供原生自動任務能力" });
         return;
       }
       let settled = false;
@@ -1005,7 +1038,7 @@ async function requestCodexAutomationViaCdp(cdp, executionContextId, method, par
         });
       };
       const timeout = window.setTimeout(
-        () => finish({ ok: false, error: "Codex 自动任务接口没有响应" }),
+        () => finish({ ok: false, error: "Codex 自動任務接口沒有回應" }),
         10_000,
       );
       window.addEventListener("message", onMessage);

@@ -40,6 +40,26 @@ function sendEmpty(response, status) {
   response.end();
 }
 
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]);
+}
+
+function sendOAuthCallbackPage(response, status, title, message) {
+  const body = `<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p><p>你可以關閉這個視窗，返回 Taskboard 後重新整理連線狀態。</p></main>`;
+  response.writeHead(status, {
+    "cache-control": "no-store",
+    "content-length": Buffer.byteLength(body),
+    "content-type": "text/html; charset=utf-8",
+  });
+  response.end(body);
+}
+
 function sendError(response, status, code, message) {
   sendJson(response, status, { error: { code, message } });
 }
@@ -70,6 +90,14 @@ async function readJson(request) {
 function assertNoQuery(url, label = "Linear connection routes") {
   if ([...url.searchParams.keys()].length > 0) {
     throw requestError(400, "UNKNOWN_QUERY_PARAMETER", `${label} do not accept query parameters`);
+  }
+}
+
+function assertOAuthCallbackQuery(url) {
+  const allowed = new Set(["code", "state", "error", "error_description"]);
+  const keys = [...url.searchParams.keys()];
+  if (keys.some((key) => !allowed.has(key)) || keys.some((key) => keys.filter((candidate) => candidate === key).length > 1)) {
+    throw requestError(400, "UNKNOWN_QUERY_PARAMETER", "Linear OAuth callback parameters are invalid");
   }
 }
 
@@ -412,6 +440,58 @@ export function installLinearLocalRoutes(app, integration) {
       }
 
       try {
+        const oauthStartRoute = url.pathname === "/api/local/linear-oauth/start";
+        const oauthCallbackRoute = url.pathname === "/api/local/linear-oauth/callback";
+        const oauthRevokeRoute = url.pathname === "/api/local/linear-oauth/revoke";
+        if (oauthStartRoute || oauthCallbackRoute || oauthRevokeRoute) {
+          if (!isLoopbackAddress(request.socket.remoteAddress)) {
+            return sendError(response, 403, "LOCAL_ONLY", "Linear OAuth is only available on this device");
+          }
+          if (oauthStartRoute) {
+            if (request.method !== "GET") {
+              response.setHeader("allow", "GET");
+              return sendEmpty(response, 405);
+            }
+            assertNoQuery(url, "Linear OAuth start route");
+            response.writeHead(302, {
+              "cache-control": "no-store",
+              location: integration.oauthStart(),
+            });
+            return response.end();
+          }
+          if (oauthCallbackRoute) {
+            if (request.method !== "GET") {
+              response.setHeader("allow", "GET");
+              return sendEmpty(response, 405);
+            }
+            assertOAuthCallbackQuery(url);
+            if (url.searchParams.get("error")) {
+              return sendOAuthCallbackPage(
+                response,
+                400,
+                "Linear OAuth 未完成",
+                url.searchParams.get("error_description") || "使用者取消了 Linear OAuth 授權。",
+              );
+            }
+            if (!url.searchParams.get("code") || !url.searchParams.get("state")) {
+              return sendOAuthCallbackPage(response, 400, "Linear OAuth 失敗", "Linear OAuth 回呼缺少必要參數。");
+            }
+            await integration.oauthCallback({
+              code: url.searchParams.get("code"),
+              state: url.searchParams.get("state"),
+            });
+            return sendOAuthCallbackPage(response, 200, "Linear 已連線", "Linear OAuth 授權已完成。");
+          }
+          if (request.method !== "POST") {
+            response.setHeader("allow", "POST");
+            return sendEmpty(response, 405);
+          }
+          assertNoQuery(url, "Linear OAuth revoke route");
+          const contentLength = Number(request.headers["content-length"] ?? 0);
+          if (contentLength > 0) throw requestError(400, "INVALID_BODY", "Linear OAuth revoke does not accept a request body");
+          return sendJson(response, 200, { connection: await integration.oauthRevoke() });
+        }
+
         if (await handleLinearProjectionRoute(app, integration, request, url, response)) return;
 
         const connectionRoute = url.pathname === "/api/local/linear-connection";

@@ -67,12 +67,13 @@ function createLinearFetch() {
   };
 }
 
-async function withServer(run) {
+async function withServer(run, options = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "linear-taskboard-routes-"));
   const linear = createLinearFetch();
   const app = createTaskboardServer({
     dataDirectory: directory,
     linearFetch: linear.fetch,
+    ...options,
   });
   try {
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
@@ -161,5 +162,50 @@ test("Linear local routes reject unknown fields and query parameters", async () 
     assert.equal(fieldResponse.status, 400);
     const fieldBody = await fieldResponse.json();
     assert.equal(fieldBody.error.code, "UNKNOWN_FIELD");
+  });
+});
+
+test("Linear OAuth routes complete the browser callback and revoke local credentials", async () => {
+  const oauthRequests = [];
+  await withServer(async ({ baseUrl }) => {
+    const startResponse = await fetch(`${baseUrl}/api/local/linear-oauth/start`, { redirect: "manual" });
+    assert.equal(startResponse.status, 302);
+    const authorizationUrl = new URL(startResponse.headers.get("location"));
+    assert.equal(authorizationUrl.hostname, "linear.app");
+    assert.equal(authorizationUrl.searchParams.get("client_id"), "linear-client-id");
+    assert.equal(authorizationUrl.searchParams.get("code_challenge_method"), "S256");
+
+    const callbackResponse = await fetch(
+      `${baseUrl}/api/local/linear-oauth/callback?code=authorization-code&state=${encodeURIComponent(authorizationUrl.searchParams.get("state"))}`,
+    );
+    assert.equal(callbackResponse.status, 200);
+    assert.match(await callbackResponse.text(), /Linear 已連線/);
+
+    const statusResponse = await fetch(`${baseUrl}/api/local/linear-connection`);
+    const status = await statusResponse.json();
+    assert.equal(status.connection.authType, "oauth");
+    assert.equal(status.connection.configured, true);
+    assert.equal(JSON.stringify(status).includes("oauth-access-token"), false);
+
+    const revokeResponse = await fetch(`${baseUrl}/api/local/linear-oauth/revoke`, { method: "POST" });
+    assert.equal(revokeResponse.status, 200);
+    assert.equal((await revokeResponse.json()).connection.configured, false);
+    assert.equal(oauthRequests.some(({ body }) => body.get("token") === "oauth-refresh-token"), true);
+  }, {
+    linearOAuthClientId: "linear-client-id",
+    linearOAuthRedirectUri: "http://127.0.0.1:47823/api/local/linear-oauth/callback",
+    linearOAuthFetch: async (url, init) => {
+      const body = new URLSearchParams(init.body);
+      oauthRequests.push({ url, body });
+      if (url.endsWith("/oauth/token")) {
+        return jsonResponse({
+          access_token: "oauth-access-token",
+          refresh_token: "oauth-refresh-token",
+          expires_in: 3600,
+          scope: "read write",
+        });
+      }
+      return new Response(null, { status: 200 });
+    },
   });
 });

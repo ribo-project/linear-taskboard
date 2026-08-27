@@ -16,7 +16,7 @@ const oldTodoDraft: NewTaskEditorDraft = {
   status: "todo",
   priority: "high",
   assignee: currentUser,
-  selectedLabels: ["回归证据"],
+  selectedLabels: ["回歸證據"],
   developmentContext: null,
   startDate: "",
   dueDate: "",
@@ -39,7 +39,7 @@ createRoot(document.getElementById("root")!).render(
     tasks={[]}
     initialStatus="in_progress"
     initialDraft={oldTodoDraft}
-    labels={["回归证据"]}
+    labels={["回歸證據"]}
     currentUser={currentUser}
     developmentScan={{ workspacePath: null, contexts: [] }}
     developmentScanLoading={false}

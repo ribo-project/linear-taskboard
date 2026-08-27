@@ -1,4 +1,4 @@
-const HOST_REQUEST_ERROR = "自动认领配置暂时无法应用，请刷新后重试";
+const HOST_REQUEST_ERROR = "自動認領設定暫時無法应用，請刷新後重試";
 const AUTOMATION_SCHEMA_DIAGNOSTIC = "AUTOMATION_SCHEMA_MISMATCH";
 
 function parseHostRequest(payload, parseAutomationRequest) {

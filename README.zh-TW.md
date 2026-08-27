@@ -52,7 +52,7 @@ SQLite 只負責本機快取 / projection，以及 Linear 沒有的 Codex 執行
 
 ### Linear 連線與同步
 
-- 使用 Linear Personal API Key 連線。
+- 使用 Linear Personal API Key 或 OAuth 2.0 連線。
 - 可限制同步指定 Team / Project。
 - 可設定只同步目前 Linear 使用者負責的 Issue。
 - 每個 Linear Project 會投影成一個 Taskboard Project。
@@ -126,7 +126,7 @@ Codex 預設只做到 **In Review**。
 
 - Node.js 22.5 以上
 - Git
-- Linear 帳號與 Personal API Key
+- Linear 帳號，以及 Personal API Key 或已設定好的 OAuth App Client ID
 - 要測試 Codex 內嵌介面時，需要 Codex Desktop App
 - 只有要打包 Tauri 桌面版時，才需要 Rust 1.88+ 與各平台 build tools
 
@@ -134,17 +134,48 @@ macOS、Windows、Ubuntu 的打包需求仍沿用原版 Taskboard 的平台需�
 
 ## 從原始碼啟動
 
-```bash
-npm install
+請先安裝依賴並建置 Web 資源：
+
+```powershell
+npm ci
 npm run build
+```
+
+接著請依需求選擇下列其中一種啟動方式。兩種方式會使用同一個本機連接埠，請勿同時執行。
+
+### A. 僅啟動瀏覽器版 Web Taskboard
+
+這只會啟動本機 Web 伺服器，不會啟動 Codex Desktop，也不會將 Taskboard 注入 Codex 左側選單。
+
+```powershell
 npm start
 ```
 
-瀏覽器打開：
+瀏覽器開啟：<http://127.0.0.1:47823>
 
-```text
-http://127.0.0.1:47823
+### B. 讓 Taskboard 出現在 Codex Desktop 左側
+
+這會執行 Codex Launcher / injector，啟動或重用本機 Taskboard 服務，並將 Taskboard 入口注入 Codex Desktop 左側選單。
+
+```powershell
+$env:CODEX_TASKBOARD_HOST="127.0.0.1"
+npm run codex
 ```
+
+使用注入後的 Taskboard 時，請保持這個 Launcher 程序執行中。這才是 Codex Desktop 的安裝與注入流程；只執行 `npm start` 不會產生左側選單入口。
+
+### 安裝 Codex Plugin
+
+本專案也包含一個本機 Codex Plugin。Plugin 會在 Codex 工作階段開始時自動啟動既有的 Launcher；真正將原生 Taskboard 入口加入 Codex 左側選單的元件仍然是這個 Launcher。
+
+請從包含 `work` 資料夾的目錄註冊本機 marketplace，並安裝 Plugin：
+
+```powershell
+codex plugin marketplace add .\work
+codex plugin add linear-taskboard@personal
+```
+
+安裝後請開啟新的 Codex 工作階段。Plugin 的 hook 可能需要先經過檢閱與信任，才能啟動 Launcher。
 
 預設本機資料會放在：
 
@@ -169,12 +200,23 @@ npm run dev
 
 1. 打開 Project 選單。
 2. 選擇 **連接 Linear / Linear 設定**。
-3. 輸入 Linear Personal API Key。
+3. 建議選擇 **使用 Linear OAuth 連線**；若未設定 OAuth App，也可以輸入 Linear Personal API Key。
 4. 如有需要，可限制指定 Team ID / Project ID。
 5. 選擇是否只同步目前 Linear 使用者負責的 Issue。
 6. 執行同步。
 
 Linear API Key 只會由本機 Taskboard Server 用來呼叫 Linear GraphQL API。
+
+目前版本同時支援 Linear Personal API Key 與 OAuth 2.0。若要使用 OAuth，請先在 PowerShell 設定 OAuth App 的 Client ID，並在 Linear OAuth App 中登記完全相同的回呼網址：
+
+```powershell
+$env:LINEAR_OAUTH_CLIENT_ID="your-linear-oauth-client-id"
+$env:LINEAR_OAUTH_REDIRECT_URI="http://127.0.0.1:47823/api/local/linear-oauth/callback"
+$env:CODEX_TASKBOARD_HOST="127.0.0.1"
+npm run codex
+```
+
+Taskboard 使用 Authorization Code + PKCE；OAuth Token 只會儲存在本機設定檔，Access Token 過期時會自動更新，也不會回傳給瀏覽器。請不要把 API Key 或 OAuth Token 貼到對話、Issue、留言或 commit 中。
 
 不會寫進：
 

@@ -34,7 +34,7 @@ Human review → Done
 
 ### Linear connection and projection
 
-- Connect a Linear workspace with a personal API key.
+- Connect a Linear workspace with a personal API key or OAuth 2.0.
 - Scope synchronization by team/project and optionally to issues assigned to the current Linear user.
 - Project each Linear Project into the existing Taskboard project UI.
 - Keep Linear issue identifiers such as `RIB-123` visible in the board and detail view.
@@ -85,7 +85,7 @@ For source development:
 
 - Node.js 22.5 or newer.
 - Git.
-- A Linear account and personal API key for the initial single-user integration.
+- A Linear account and either a personal API key or a configured OAuth 2.0 application.
 - Codex desktop app when testing the embedded Codex experience.
 - Rust 1.88+ and platform build tools only when building the Tauri desktop application.
 
@@ -93,13 +93,48 @@ Platform packaging requirements inherited from upstream still apply to macOS, Wi
 
 ## Run from source
 
-```bash
-npm install
+Install dependencies and build the web assets first:
+
+```powershell
+npm ci
 npm run build
+```
+
+Choose one of the following startup paths. Do not run both at the same time because they use the same local port.
+
+### A. Start the browser Web Taskboard only
+
+This starts the local web server. It does not launch or inject into Codex Desktop.
+
+```powershell
 npm start
 ```
 
-Open <http://127.0.0.1:47823>.
+Open <http://127.0.0.1:47823> in a browser.
+
+### B. Show Taskboard in the Codex Desktop sidebar
+
+This runs the Codex launcher/injector, starts or reuses the local Taskboard service, and injects the Taskboard entry into Codex Desktop.
+
+```powershell
+$env:CODEX_TASKBOARD_HOST="127.0.0.1"
+npm run codex
+```
+
+Keep this launcher process running while using the injected Taskboard. This is the Codex Desktop installation path; `npm start` alone does not add a sidebar entry.
+
+### Codex Plugin installation
+
+The repository also includes a local Codex Plugin. The Plugin starts the existing launcher automatically at the beginning of a Codex session; the launcher is still the component that adds the native Taskboard entry to the Codex sidebar.
+
+From the directory containing the `work` folder, register the local marketplace and install the Plugin:
+
+```powershell
+codex plugin marketplace add .\work
+codex plugin add linear-taskboard@personal
+```
+
+Start a new Codex session after installation. The Plugin hook may require review and trust before it can start the launcher.
 
 By default, local data is stored under `.data/`, including:
 
@@ -122,12 +157,23 @@ The preferred path is the Taskboard UI:
 
 1. Open the project menu.
 2. Choose **Connect Linear** / **Linear Settings**.
-3. Enter a Linear personal API key.
+3. Choose **Connect with Linear OAuth**; if OAuth is not configured, enter a Linear personal API key.
 4. Optionally restrict synchronization to specific Team IDs or Project IDs.
 5. Choose whether to synchronize only issues assigned to the current Linear user.
 6. Synchronize.
 
 The API key is used by the local Taskboard service to call Linear's GraphQL API. It is not stored in issue content, Codex prompts, Git commits, or browser local storage.
+
+OAuth 2.0 is also supported. Set the OAuth application's client ID before starting the launcher:
+
+```powershell
+$env:LINEAR_OAUTH_CLIENT_ID="your-linear-oauth-client-id"
+$env:LINEAR_OAUTH_REDIRECT_URI="http://127.0.0.1:47823/api/local/linear-oauth/callback"
+$env:CODEX_TASKBOARD_HOST="127.0.0.1"
+npm run codex
+```
+
+Register the same redirect URI in the Linear OAuth application. The Taskboard uses Authorization Code + PKCE, stores OAuth tokens only in the local config file, refreshes access tokens automatically, and does not return tokens to the browser. Do not paste an API key or OAuth token into chat, issues, comments, or commits.
 
 ### CLI bootstrap
 

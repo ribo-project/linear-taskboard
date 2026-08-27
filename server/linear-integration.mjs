@@ -1,4 +1,7 @@
+import { randomBytes } from "node:crypto";
+
 import { createLinearClient } from "./linear-client.mjs";
+import { createLinearOAuthClient, LINEAR_OAUTH_SCOPE } from "./linear-oauth.mjs";
 import {
   chooseLinearWorkflowState,
   linearOriginId,
@@ -21,6 +24,8 @@ function safeConnection(config, state = {}) {
   if (!config) {
     return {
       configured: false,
+      authType: null,
+      oauthClientConfigured: state.oauthClientConfigured ?? false,
       assignedToMeOnly: true,
       teamIds: [],
       projectIds: [],
@@ -34,6 +39,10 @@ function safeConnection(config, state = {}) {
 
   return {
     configured: true,
+    authType: config.version === 2 ? "oauth" : "api-key",
+    oauthClientConfigured: state.oauthClientConfigured ?? false,
+    oauthScope: config.version === 2 ? config.oauth.scope : null,
+    oauthExpiresAt: config.version === 2 ? config.oauth.expiresAt : null,
     assignedToMeOnly: config.assignedToMeOnly,
     teamIds: config.teamIds,
     projectIds: config.projectIds,
@@ -55,18 +64,57 @@ export function createLinearIntegration({
   projection = null,
   fetch: fetchImplementation = globalThis.fetch,
   endpoint,
+  oauthClientId = process.env.LINEAR_OAUTH_CLIENT_ID,
+  oauthClientSecret = process.env.LINEAR_OAUTH_CLIENT_SECRET,
+  oauthRedirectUri = process.env.LINEAR_OAUTH_REDIRECT_URI
+    ?? `http://127.0.0.1:${process.env.CODEX_TASKBOARD_PORT || "47823"}/api/local/linear-oauth/callback`,
+  oauthFetch = globalThis.fetch,
+  now = () => Date.now(),
 } = {}) {
   if (!configStore) throw new Error("configStore is required");
 
   let lastState = null;
   let pendingSync = null;
+  let pendingOAuthRefresh = null;
+  const oauthSessions = new Map();
+  const oauthClient = oauthClientId
+    ? createLinearOAuthClient({
+        clientId: oauthClientId,
+        clientSecret: oauthClientSecret,
+        redirectUri: oauthRedirectUri,
+        fetch: oauthFetch,
+      })
+    : null;
+
+  function connectionState() {
+    return { ...(lastState ?? {}), oauthClientConfigured: Boolean(oauthClient) };
+  }
 
   function clientFor(config) {
     return createLinearClient({
       apiKey: config.apiKey,
+      accessToken: config.oauth?.accessToken,
       fetch: fetchImplementation,
       ...(endpoint ? { endpoint } : {}),
     });
+  }
+
+  async function refreshOAuthConfig(config) {
+    if (config?.version !== 2) return config;
+    if (!oauthClient) {
+      throw new Error("Linear OAuth is not configured; set LINEAR_OAUTH_CLIENT_ID");
+    }
+    if (config.oauth.expiresAt > now() + 60_000) return config;
+    if (pendingOAuthRefresh) return pendingOAuthRefresh;
+    pendingOAuthRefresh = oauthClient.refreshToken(config.oauth.refreshToken)
+      .then((tokens) => configStore.save({
+        ...config,
+        oauth: tokens,
+      }))
+      .finally(() => {
+        pendingOAuthRefresh = null;
+      });
+    return pendingOAuthRefresh;
   }
 
   async function fetchSnapshot(config) {
@@ -135,19 +183,19 @@ export function createLinearIntegration({
     const snapshot = await fetchSnapshot(config);
     await applyProjection(snapshot, { archiveMissing });
     recordState(snapshot);
-    return { connection: safeConnection(config, lastState), snapshot };
+    return { connection: safeConnection(config, connectionState()), snapshot };
   }
 
   async function sync({ force = false, archiveMissing = true } = {}) {
-    const config = await configStore.read();
-    if (!config) return { connection: safeConnection(null), snapshot: null };
+    const config = await refreshOAuthConfig(await configStore.read());
+    if (!config) return { connection: safeConnection(null, connectionState()), snapshot: null };
 
     if (
       !force
       && lastState?.lastSyncedAt
       && Date.now() - new Date(lastState.lastSyncedAt).getTime() < SYNC_INTERVAL_MS
     ) {
-      return { connection: safeConnection(config, lastState), snapshot: null };
+      return { connection: safeConnection(config, connectionState()), snapshot: null };
     }
 
     if (pendingSync) return pendingSync;
@@ -158,14 +206,14 @@ export function createLinearIntegration({
   }
 
   async function withClient(operation) {
-    const config = await configStore.read();
+    const config = await refreshOAuthConfig(await configStore.read());
     if (!config) throw new Error("Linear is not configured");
     return operation(clientFor(config));
   }
 
   return {
     async status() {
-      return safeConnection(await configStore.read(), lastState ?? {});
+      return safeConnection(await configStore.read(), connectionState());
     },
 
     async configure(input) {
@@ -174,14 +222,76 @@ export function createLinearIntegration({
       await applyProjection(snapshot, { archiveMissing: true });
       const saved = await configStore.save(candidate);
       recordState(snapshot);
-      return safeConnection(saved, lastState);
+      return safeConnection(saved, connectionState());
+    },
+
+    oauthStart() {
+      if (!oauthClient) {
+        throw new Error("Linear OAuth is not configured; set LINEAR_OAUTH_CLIENT_ID");
+      }
+      const state = randomBytes(32).toString("base64url");
+      const authorization = oauthClient.authorizationUrl({ state, scope: LINEAR_OAUTH_SCOPE });
+      oauthSessions.set(state, { verifier: authorization.verifier, createdAt: now() });
+      for (const [key, session] of oauthSessions) {
+        if (now() - session.createdAt > 10 * 60_000) oauthSessions.delete(key);
+      }
+      while (oauthSessions.size > 20) oauthSessions.delete(oauthSessions.keys().next().value);
+      return authorization.url;
+    },
+
+    async oauthCallback({ code, state }) {
+      const session = oauthSessions.get(state);
+      oauthSessions.delete(state);
+      if (!session || now() - session.createdAt > 10 * 60_000) {
+        throw new Error("Linear OAuth state is invalid or expired");
+      }
+      const tokens = await oauthClient.exchangeCode({ code, verifier: session.verifier });
+      const candidate = {
+        version: 2,
+        authType: "oauth",
+        oauth: tokens,
+        teamIds: [],
+        projectIds: [],
+        assignedToMeOnly: true,
+      };
+      const previous = await configStore.read();
+      if (previous) {
+        candidate.teamIds = previous.teamIds;
+        candidate.projectIds = previous.projectIds;
+        candidate.assignedToMeOnly = previous.assignedToMeOnly;
+      }
+      const snapshot = await fetchSnapshot(candidate);
+      await applyProjection(snapshot, { archiveMissing: true });
+      const saved = await configStore.save(candidate);
+      recordState(snapshot);
+      return safeConnection(saved, connectionState());
+    },
+
+    async oauthRevoke() {
+      const config = await configStore.read();
+      if (!config || config.version !== 2) return safeConnection(config, connectionState());
+      let revokeError = null;
+      try {
+        if (!oauthClient) {
+          throw new Error("Linear OAuth is not configured; set LINEAR_OAUTH_CLIENT_ID");
+        }
+        await oauthClient.revokeToken(config.oauth.refreshToken, "refresh_token");
+      } catch (error) {
+        revokeError = error;
+      } finally {
+        await configStore.clear();
+        lastState = null;
+        pendingSync = null;
+      }
+      if (revokeError) throw revokeError;
+      return safeConnection(null, connectionState());
     },
 
     async clear() {
       await configStore.clear();
       lastState = null;
       pendingSync = null;
-      return safeConnection(null);
+      return safeConnection(null, connectionState());
     },
 
     sync,

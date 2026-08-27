@@ -89,16 +89,16 @@ test("issue detail markdown styles cover rich document elements", () => {
 
 test("the configured markdown renderer produces CommonMark and GFM elements", () => {
   const markdown = [
-    "**粗体**和[链接](https://example.com)",
+    "**粗體**和[链接](https://example.com)",
     "",
     "> 引用",
     "",
     "- [x] 已完成",
     "- [ ] 未完成",
     "",
-    "~~删除线~~",
+    "~~刪除线~~",
     "",
-    "| 名称 | 状态 |",
+    "| 名稱 | 狀態 |",
     "| --- | --- |",
     "| Taskboard | Ready |",
     "",

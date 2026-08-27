@@ -5,6 +5,7 @@ import { listProjects, listTasks } from "../api";
 import {
   configureLinearConnection,
   getLinearConnection,
+  revokeLinearConnection,
   setLinearCodexReady,
   syncLinearConnection,
   type LinearConnection,
@@ -267,6 +268,32 @@ export function LinearIntegrationExtension() {
     }
   }
 
+  async function refreshConnection() {
+    if (saving || syncing) return;
+    setError(null);
+    try {
+      await refreshConnectionState();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }
+
+  async function revokeConnection() {
+    if (saving || syncing) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const nextConnection = await revokeLinearConnection();
+      setConnection(nextConnection);
+      setDialogOpen(false);
+      window.location.reload();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function toggleDetailCodexReady() {
     if (!detailTask || savingCodexReady) return;
     setSavingCodexReady(true);
@@ -391,6 +418,8 @@ export function LinearIntegrationExtension() {
           saving={saving}
           syncing={syncing}
           error={error}
+          onRefresh={refreshConnection}
+          onRevoke={revokeConnection}
           onClose={() => {
             if (!saving && !syncing) setDialogOpen(false);
           }}

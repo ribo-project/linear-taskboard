@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promi
 import path from "node:path";
 
 const CONFIG_VERSION = 1;
+const OAUTH_CONFIG_VERSION = 2;
 
 export class LinearConfigError extends Error {
   constructor(code, message) {
@@ -19,6 +20,20 @@ function validateApiKey(value) {
     );
   }
   return value.trim();
+}
+
+function validateSecret(value, fieldName) {
+  if (typeof value !== "string" || !value.trim() || value.length > 16_384) {
+    throw new LinearConfigError("INVALID_LINEAR_OAUTH", `${fieldName} must be a non-empty string`);
+  }
+  return value.trim();
+}
+
+function validateExpiresAt(value) {
+  if (!Number.isSafeInteger(value) || value < 0 || value > Date.now() + 31_536_000_000) {
+    throw new LinearConfigError("INVALID_LINEAR_OAUTH", "oauth.expiresAt is invalid");
+  }
+  return value;
 }
 
 function validateIdList(value, fieldName) {
@@ -53,7 +68,7 @@ function parseConfig(value) {
     value === null
     || typeof value !== "object"
     || Array.isArray(value)
-    || value.version !== CONFIG_VERSION
+    || (value.version !== CONFIG_VERSION && value.version !== OAUTH_CONFIG_VERSION)
   ) {
     throw new LinearConfigError("INVALID_LINEAR_CONFIG", "Linear config file is invalid");
   }
@@ -61,6 +76,8 @@ function parseConfig(value) {
   const allowedKeys = new Set([
     "version",
     "apiKey",
+    "authType",
+    "oauth",
     "teamIds",
     "projectIds",
     "assignedToMeOnly",
@@ -70,6 +87,40 @@ function parseConfig(value) {
       "INVALID_LINEAR_CONFIG",
       "Linear config file contains unknown fields",
     );
+  }
+
+  if (value.version === OAUTH_CONFIG_VERSION) {
+    if (value.authType !== "oauth" || value.apiKey !== undefined) {
+      throw new LinearConfigError("INVALID_LINEAR_CONFIG", "OAuth config must use authType oauth");
+    }
+    if (value.assignedToMeOnly !== undefined && typeof value.assignedToMeOnly !== "boolean") {
+      throw new LinearConfigError("INVALID_LINEAR_CONFIG", "assignedToMeOnly must be a boolean");
+    }
+    if (
+      !value.oauth
+      || typeof value.oauth !== "object"
+      || Array.isArray(value.oauth)
+      || Object.keys(value.oauth).some((key) => !new Set(["accessToken", "refreshToken", "expiresAt", "scope"]).has(key))
+    ) {
+      throw new LinearConfigError("INVALID_LINEAR_CONFIG", "Linear OAuth config is invalid");
+    }
+    return {
+      version: OAUTH_CONFIG_VERSION,
+      authType: "oauth",
+      oauth: {
+        accessToken: validateSecret(value.oauth.accessToken, "oauth.accessToken"),
+        refreshToken: validateSecret(value.oauth.refreshToken, "oauth.refreshToken"),
+        expiresAt: validateExpiresAt(value.oauth.expiresAt),
+        scope: validateSecret(value.oauth.scope, "oauth.scope"),
+      },
+      teamIds: validateIdList(value.teamIds, "teamIds"),
+      projectIds: validateIdList(value.projectIds, "projectIds"),
+      assignedToMeOnly: value.assignedToMeOnly ?? true,
+    };
+  }
+
+  if (value.authType !== undefined || value.oauth !== undefined) {
+    throw new LinearConfigError("INVALID_LINEAR_CONFIG", "Legacy Linear config cannot contain OAuth fields");
   }
 
   if (value.assignedToMeOnly !== undefined && typeof value.assignedToMeOnly !== "boolean") {
@@ -117,7 +168,10 @@ export function createLinearConfigStore({ configPath }) {
     },
 
     async save(input) {
-      const config = parseConfig({ ...input, version: CONFIG_VERSION });
+      const config = parseConfig({
+        ...input,
+        version: input?.oauth ? OAUTH_CONFIG_VERSION : CONFIG_VERSION,
+      });
       const operation = pendingWrite.catch(() => {}).then(async () => {
         await writeAtomically(config);
         return config;
@@ -136,7 +190,10 @@ export function createLinearConfigStore({ configPath }) {
     },
 
     validate(input) {
-      return parseConfig({ ...input, version: CONFIG_VERSION });
+      return parseConfig({
+        ...input,
+        version: input?.oauth ? OAUTH_CONFIG_VERSION : CONFIG_VERSION,
+      });
     },
   };
 }

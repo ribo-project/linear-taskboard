@@ -21,11 +21,10 @@ function graphQlErrorMessage(error) {
     : "Linear GraphQL request failed";
 }
 
-function normalizeApiKey(apiKey) {
-  if (typeof apiKey !== "string" || !apiKey.trim()) {
-    throw new LinearApiError("LINEAR_API_KEY_REQUIRED", "Linear API key is required");
-  }
-  return apiKey.trim();
+function normalizeAuthorization({ apiKey, accessToken }) {
+  if (typeof accessToken === "string" && accessToken.trim()) return `Bearer ${accessToken.trim()}`;
+  if (typeof apiKey === "string" && apiKey.trim()) return apiKey.trim();
+  throw new LinearApiError("LINEAR_CREDENTIAL_REQUIRED", "Linear API key or OAuth access token is required");
 }
 
 const ISSUE_FIELDS = `
@@ -65,11 +64,12 @@ const ISSUE_FIELDS = `
 
 export function createLinearClient({
   apiKey,
+  accessToken,
   fetch: fetchImplementation = globalThis.fetch,
   endpoint = LINEAR_GRAPHQL_ENDPOINT,
   timeoutMs = REQUEST_TIMEOUT_MS,
 } = {}) {
-  const authorization = normalizeApiKey(apiKey);
+  const authorization = normalizeAuthorization({ apiKey, accessToken });
   if (typeof fetchImplementation !== "function") {
     throw new TypeError("fetch must be a function");
   }

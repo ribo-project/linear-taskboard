@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { useTaskboardI18n } from "../i18n";
+import { linearOAuthStartUrl } from "../linearApi";
 import type { LinearConnection } from "../linearApi";
 
 interface LinearConnectionDialogProps {
@@ -9,6 +10,8 @@ interface LinearConnectionDialogProps {
   syncing: boolean;
   error: string | null;
   onClose: () => void;
+  onRefresh: () => Promise<void>;
+  onRevoke: () => Promise<void>;
   onSave: (input: {
     apiKey: string;
     teamIds: string[];
@@ -31,6 +34,8 @@ export function LinearConnectionDialog({
   syncing,
   error,
   onClose,
+  onRefresh,
+  onRevoke,
   onSave,
   onSync,
 }: LinearConnectionDialogProps) {
@@ -83,6 +88,31 @@ export function LinearConnectionDialog({
             ? text("Linear 連線設定", "Linear settings")
             : text("連接 Linear", "Connect Linear")}
         </h2>
+
+        <div className="linear-oauth-section">
+          <strong>{text("建議使用 Linear OAuth 2.0", "Recommended: Linear OAuth 2.0")}</strong>
+          <p>
+            {connection?.oauthClientConfigured
+              ? text(
+                  "不需要在 Taskboard 貼上 API Key；點擊後會在瀏覽器完成 Linear 授權。",
+                  "You do not need to paste an API key; authorization will finish in your browser.",
+                )
+              : text(
+                  "尚未設定 OAuth Client ID。請先設定 LINEAR_OAUTH_CLIENT_ID，再重新開啟此視窗。",
+                  "OAuth is not configured. Set LINEAR_OAUTH_CLIENT_ID, then reopen this dialog.",
+                )}
+          </p>
+          {connection?.oauthClientConfigured && (
+            <a
+              className="button secondary"
+              href={linearOAuthStartUrl()}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {text("使用 Linear OAuth 連線", "Connect with Linear OAuth")}
+            </a>
+          )}
+        </div>
 
         {connection?.configured && connection.organization && (
           <p>
@@ -183,6 +213,16 @@ export function LinearConnectionDialog({
               onClick={() => void onSync()}
             >
               {syncing ? text("同步中…", "Syncing…") : text("立即同步", "Sync now")}
+            </button>
+          )}
+          {connection?.oauthClientConfigured && (
+            <button className="button secondary" type="button" disabled={busy} onClick={() => void onRefresh()}>
+              {text("重新整理連線", "Refresh connection")}
+            </button>
+          )}
+          {connection?.authType === "oauth" && (
+            <button className="button secondary" type="button" disabled={busy} onClick={() => void onRevoke()}>
+              {text("中斷 OAuth 連線", "Disconnect OAuth")}
             </button>
           )}
           <button
