@@ -49,10 +49,17 @@ test("Linear issue detail exposes explicit codex-ready write-through without cha
   assert.match(extensionSource, /continuationEligibility/);
 });
 
-test("Linear source presentation hides local issue creation controls and styles controlled write-through actions", () => {
+test("Linear source presentation hides unsupported local mutations while keeping controlled write-through actions", () => {
   assert.match(styleSource, /data-linear-project="true"/);
   assert.match(styleSource, /\.header-create-button/);
   assert.match(styleSource, /\.add-task-button/);
+  assert.match(styleSource, /\.issue-title-input/);
+  assert.match(styleSource, /\.issue-description-read/);
+  assert.match(styleSource, /\.detail-property-picker/);
+  assert.match(styleSource, /\.issue-relation-add/);
+  assert.match(styleSource, /\.issue-relation-remove/);
+  assert.match(styleSource, /\.attachment-add-button/);
+  assert.match(styleSource, /\.comment-attach-button/);
   assert.match(styleSource, /\.linear-source-badge/);
   assert.match(styleSource, /\.linear-map-button/);
   assert.match(styleSource, /\.linear-codex-ready-action/);
