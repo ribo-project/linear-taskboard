@@ -9,6 +9,25 @@ html[data-linear-project="true"] [data-task-id] .task-card-complete {
   opacity: 0.72;
 }
 
+html[data-linear-project="true"] .issue-title-input,
+html[data-linear-project="true"] .issue-description-read,
+html[data-linear-project="true"] .detail-property-picker {
+  pointer-events: none;
+  opacity: 0.78;
+}
+
+html[data-linear-project="true"] .issue-title-input {
+  caret-color: transparent;
+}
+
+html[data-linear-project="true"] .issue-relation-add,
+html[data-linear-project="true"] .issue-relation-remove,
+html[data-linear-project="true"] .attachment-add-button,
+html[data-linear-project="true"] .attachment-actions button,
+html[data-linear-project="true"] .comment-attach-button {
+  display: none !important;
+}
+
 .linear-source-badge,
 .linear-map-button {
   display: inline-flex;
