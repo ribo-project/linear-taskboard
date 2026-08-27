@@ -28,6 +28,41 @@ function normalizeApiKey(apiKey) {
   return apiKey.trim();
 }
 
+const ISSUE_FIELDS = `
+  id
+  identifier
+  title
+  description
+  priority
+  dueDate
+  url
+  createdAt
+  updatedAt
+  state { id name type position }
+  team { id key name }
+  project { id name }
+  labels { nodes { id name } }
+  assignee { id name displayName avatarUrl }
+  creator { id name displayName avatarUrl }
+  parent { id identifier }
+  inverseRelations(first: 100) {
+    nodes {
+      id
+      type
+      issue {
+        id
+        identifier
+        title
+        url
+        state { id name type position }
+        team { id key name }
+        project { id name }
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+`;
+
 export function createLinearClient({
   apiKey,
   fetch: fetchImplementation = globalThis.fetch,
@@ -129,24 +164,7 @@ export function createLinearClient({
             query LinearTaskboardAssignedIssues($first: Int!, $after: String) {
               viewer {
                 assignedIssues(first: $first, after: $after, includeArchived: false) {
-                  nodes {
-                    id
-                    identifier
-                    title
-                    description
-                    priority
-                    dueDate
-                    url
-                    createdAt
-                    updatedAt
-                    state { id name type position }
-                    team { id key name }
-                    project { id name }
-                    labels { nodes { id name } }
-                    assignee { id name displayName avatarUrl }
-                    creator { id name displayName avatarUrl }
-                    parent { id identifier }
-                  }
+                  nodes { ${ISSUE_FIELDS} }
                   pageInfo { hasNextPage endCursor }
                 }
               }
@@ -155,24 +173,7 @@ export function createLinearClient({
         : await request(`
             query LinearTaskboardIssues($first: Int!, $after: String) {
               issues(first: $first, after: $after, includeArchived: false, orderBy: updatedAt) {
-                nodes {
-                  id
-                  identifier
-                  title
-                  description
-                  priority
-                  dueDate
-                  url
-                  createdAt
-                  updatedAt
-                  state { id name type position }
-                  team { id key name }
-                  project { id name }
-                  labels { nodes { id name } }
-                  assignee { id name displayName avatarUrl }
-                  creator { id name displayName avatarUrl }
-                  parent { id identifier }
-                }
+                nodes { ${ISSUE_FIELDS} }
                 pageInfo { hasNextPage endCursor }
               }
             }
