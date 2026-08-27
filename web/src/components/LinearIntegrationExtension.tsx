@@ -78,6 +78,29 @@ export function LinearIntegrationExtension() {
     };
   }, [isLinearProject]);
 
+  useEffect(() => {
+    if (!isLinearProject) return;
+    const isTaskCardEvent = (event: Event) => (
+      event.target instanceof Element && Boolean(event.target.closest("[data-task-id]"))
+    );
+    const preventDrag = (event: Event) => {
+      if (!isTaskCardEvent(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const preventContextMenu = (event: Event) => {
+      if (!isTaskCardEvent(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    document.addEventListener("dragstart", preventDrag, true);
+    document.addEventListener("contextmenu", preventContextMenu, true);
+    return () => {
+      document.removeEventListener("dragstart", preventDrag, true);
+      document.removeEventListener("contextmenu", preventContextMenu, true);
+    };
+  }, [isLinearProject]);
+
   function openDialog() {
     setError(null);
     setDialogOpen(true);
