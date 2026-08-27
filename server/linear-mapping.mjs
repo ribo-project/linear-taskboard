@@ -79,6 +79,37 @@ function actorFromLinear(user, fallback) {
   };
 }
 
+export function linearDependenciesFromIssue(issue) {
+  const connection = issue?.inverseRelations;
+  const nodes = Array.isArray(connection?.nodes) ? connection.nodes : [];
+  const blockedBy = nodes.flatMap((relation) => {
+    if (String(relation?.type ?? "").toLowerCase() !== "blocks" || !relation?.issue?.id) return [];
+    const blocker = relation.issue;
+    const status = taskStatusFromLinear(blocker.state);
+    return [{
+      relationId: typeof relation.id === "string" ? relation.id : null,
+      issueId: String(blocker.id),
+      identifier: limitedString(blocker.identifier, "LINEAR", 128),
+      title: limitedString(blocker.title, blocker.identifier ?? "Linear blocker", 240),
+      url: typeof blocker.url === "string" ? blocker.url : null,
+      stateId: blocker.state?.id ?? null,
+      stateType: blocker.state?.type ?? null,
+      stateName: blocker.state?.name ?? null,
+      status,
+      resolved: status === "done" || status === "canceled",
+      teamId: blocker.team?.id ?? null,
+      teamKey: blocker.team?.key ?? null,
+      projectId: blocker.project?.id ?? null,
+      projectName: blocker.project?.name ?? null,
+    }];
+  });
+
+  return {
+    complete: connection?.pageInfo?.hasNextPage === false,
+    blockedBy,
+  };
+}
+
 export function normalizeLinearIssue(issue, {
   organizationId,
   organizationName = "Linear",
@@ -103,6 +134,7 @@ export function normalizeLinearIssue(issue, {
   const projectName = issue.project?.name ?? null;
   const teamId = issue.team?.id ?? null;
   const teamKey = issue.team?.key ?? null;
+  const linearDependencies = linearDependenciesFromIssue(issue);
 
   return {
     id: internalId,
@@ -123,6 +155,7 @@ export function normalizeLinearIssue(issue, {
     externalUrl: typeof issue.url === "string" ? issue.url : null,
     createdAt: typeof issue.createdAt === "string" ? issue.createdAt : new Date().toISOString(),
     updatedAt: typeof issue.updatedAt === "string" ? issue.updatedAt : new Date().toISOString(),
+    linearDependencies,
     nativeRef: {
       issueId: externalId,
       issueIdentifier: externalKey,
@@ -134,6 +167,7 @@ export function normalizeLinearIssue(issue, {
       projectName,
       parentId: issue.parent?.id ?? null,
       parentIdentifier: issue.parent?.identifier ?? null,
+      dependenciesComplete: linearDependencies.complete,
     },
     project: {
       id: linearProjectKey(projectId),
