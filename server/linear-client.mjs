@@ -195,6 +195,41 @@ export function createLinearClient({
     return nodes;
   }
 
+  async function listComments(issueId, { first = DEFAULT_PAGE_SIZE } = {}) {
+    const nodes = [];
+    let after = null;
+    while (true) {
+      const data = await request(`
+        query LinearTaskboardIssueComments($issueId: String!, $first: Int!, $after: String) {
+          issue(id: $issueId) {
+            comments(first: $first, after: $after) {
+              nodes {
+                id
+                body
+                createdAt
+                updatedAt
+                user { id name displayName avatarUrl }
+              }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
+        }
+      `, { issueId, first, after });
+      const connection = data.issue?.comments;
+      const pageNodes = Array.isArray(connection?.nodes) ? connection.nodes : [];
+      nodes.push(...pageNodes);
+      if (!connection?.pageInfo?.hasNextPage) break;
+      after = connection.pageInfo.endCursor;
+      if (!after) {
+        throw new LinearApiError(
+          "INVALID_LINEAR_PAGINATION",
+          "Linear reported another comment page without an end cursor",
+        );
+      }
+    }
+    return nodes;
+  }
+
   async function listWorkflowStates(teamId) {
     const data = await request(`
       query LinearTaskboardWorkflowStates($teamId: String!) {
@@ -228,7 +263,13 @@ export function createLinearClient({
       mutation LinearTaskboardCreateComment($input: CommentCreateInput!) {
         commentCreate(input: $input) {
           success
-          comment { id body createdAt updatedAt }
+          comment {
+            id
+            body
+            createdAt
+            updatedAt
+            user { id name displayName avatarUrl }
+          }
         }
       }
     `, { input: { issueId, body } });
@@ -242,6 +283,7 @@ export function createLinearClient({
     request,
     viewer,
     listIssues,
+    listComments,
     listWorkflowStates,
     updateIssue,
     createComment,
