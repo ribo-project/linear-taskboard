@@ -9,7 +9,7 @@ html[data-linear-project="true"] [data-task-id] .task-card-complete {
   opacity: 0.72;
 }
 
-.linear-readonly-badge,
+.linear-source-badge,
 .linear-map-button {
   display: inline-flex;
   align-items: center;
@@ -36,8 +36,27 @@ html[data-linear-project="true"] [data-task-id] .task-card-complete {
   border-style: dashed;
 }
 
-.linear-sync-button:disabled {
+.linear-sync-button:disabled,
+.linear-codex-ready-action:disabled {
   opacity: 0.55;
+}
+
+.linear-codex-ready-action.is-ready {
+  border-style: dashed;
+}
+
+.linear-codex-ready-state {
+  margin-left: auto;
+  color: var(--text-secondary, currentColor);
+  font-size: 11px;
+}
+
+.linear-codex-ready-error {
+  display: block;
+  padding: 0 8px;
+  color: var(--danger-text, #b42318);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .linear-mapping-dialog {
