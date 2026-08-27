@@ -103,6 +103,51 @@ function errorResponse(error) {
   };
 }
 
+function decodeRouteId(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+function blockLinearProjectionMutation(app, request, url, response) {
+  const method = request.method ?? "GET";
+  if (method === "GET" || method === "HEAD") return false;
+
+  const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)/);
+  if (taskMatch) {
+    const taskId = decodeRouteId(taskMatch[1]);
+    const task = taskId ? app.database.getTask(taskId) : null;
+    if (task?.source === "linear") {
+      sendError(
+        response,
+        409,
+        "LINEAR_READ_ONLY",
+        "Linear issues are read-only in this Taskboard build until write-through is enabled",
+      );
+      return true;
+    }
+  }
+
+  const projectMatch = url.pathname.match(/^\/api\/projects\/([^/]+)/);
+  if (projectMatch) {
+    const projectId = decodeRouteId(projectMatch[1]);
+    const project = projectId ? app.database.getProject(projectId) : null;
+    if (project?.source === "linear") {
+      sendError(
+        response,
+        409,
+        "LINEAR_READ_ONLY",
+        "Linear projects are read-only projections and cannot be edited locally",
+      );
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function installLinearLocalRoutes(app, integration) {
   if (!app?.server) throw new TypeError("Taskboard app server is required");
   if (!integration) throw new TypeError("Linear integration is required");
@@ -122,6 +167,8 @@ export function installLinearLocalRoutes(app, integration) {
       } catch {
         return baseRequestHandler.call(app.server, request, response);
       }
+
+      if (blockLinearProjectionMutation(app, request, url, response)) return;
 
       const connectionRoute = url.pathname === "/api/local/linear-connection";
       const syncRoute = url.pathname === "/api/local/linear-connection/sync";
