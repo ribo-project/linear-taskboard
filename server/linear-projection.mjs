@@ -1,3 +1,5 @@
+import { ApiError } from "./database.mjs";
+
 function now() {
   return new Date().toISOString();
 }
@@ -54,13 +56,20 @@ function decorateTask(task, ref) {
   };
 }
 
-function installReadDecorators(database, sqlite) {
+function installDatabaseDecorators(database, sqlite) {
   if (database.__linearProjectionDecorated === true) return;
 
   const listProjects = database.listProjects.bind(database);
   const getProject = database.getProject.bind(database);
   const listTasks = database.listTasks.bind(database);
   const getTask = database.getTask.bind(database);
+  const createTask = database.createTask.bind(database);
+  const updateTask = database.updateTask.bind(database);
+  const isLinearProject = (projectId) => Boolean(sqlite.prepare(`
+    SELECT 1
+    FROM linear_project_refs
+    WHERE project_id = ?
+  `).get(projectId));
 
   database.listProjects = (...args) => {
     const refs = projectRefMap(sqlite);
@@ -93,6 +102,28 @@ function installReadDecorators(database, sqlite) {
       WHERE task_id = ?
     `).get(task.id);
     return decorateTask(task, ref);
+  };
+
+  database.createTask = (input, ...args) => {
+    if (isLinearProject(input?.projectId)) {
+      throw new ApiError(
+        409,
+        "LINEAR_READ_ONLY",
+        "Local issues cannot be created inside a Linear projection project",
+      );
+    }
+    return createTask(input, ...args);
+  };
+
+  database.updateTask = (id, version, changes, ...args) => {
+    if (changes?.projectId && isLinearProject(changes.projectId)) {
+      throw new ApiError(
+        409,
+        "LINEAR_READ_ONLY",
+        "Local issues cannot be moved into a Linear projection project",
+      );
+    }
+    return updateTask(id, version, changes, ...args);
   };
 
   Object.defineProperty(database, "__linearProjectionDecorated", {
@@ -131,7 +162,7 @@ export function installLinearProjection(database) {
   if (!database?.database) throw new TypeError("Taskboard database with a SQLite handle is required");
   const sqlite = database.database;
   migrate(sqlite);
-  installReadDecorators(database, sqlite);
+  installDatabaseDecorators(database, sqlite);
 
   const upsertProject = sqlite.prepare(`
     INSERT INTO projects (
