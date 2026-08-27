@@ -10,6 +10,9 @@ const skillSource = await readFile(
 test("manage-taskboard treats Linear as authoritative and requires explicit autonomous readiness", () => {
   assert.match(skillSource, /## Linear source-of-truth issues/i);
   assert.match(skillSource, /Linear is authoritative for issue workflow data/i);
+  assert.match(skillSource, /`claimEligibility` is present[\s\S]*server-computed autonomous claim gate/i);
+  assert.match(skillSource, /`claimEligibility\.eligible` is exactly `true`/i);
+  assert.match(skillSource, /`claimEligibility\.reasons` is diagnostic output[\s\S]*never override/i);
   assert.match(skillSource, /labels contain `codex-ready`/i);
   assert.match(skillSource, /`linearDependencies\.complete` is exactly `true`/i);
   assert.match(skillSource, /`linearDependencies\.unblocked` is exactly `true`/i);
