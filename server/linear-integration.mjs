@@ -7,6 +7,9 @@ import {
 } from "./linear-mapping.mjs";
 
 const SYNC_INTERVAL_MS = 60_000;
+const CODEX_READY_LABEL = "codex-ready";
+const CODEX_READY_LABEL_COLOR = "#5E6AD2";
+const CODEX_READY_LABEL_DESCRIPTION = "Allows Codex Taskboard automation to claim this issue automatically.";
 
 function inScope(issue, config) {
   if (config.teamIds.length > 0 && !config.teamIds.includes(issue.team?.id)) return false;
@@ -40,6 +43,11 @@ function safeConnection(config, state = {}) {
     issueCount: state.issueCount ?? 0,
     projectCount: state.projectCount ?? 0,
   };
+}
+
+function findIssueLabel(labels, name) {
+  const normalized = name.toLocaleLowerCase("en-US");
+  return labels.find((label) => label?.name?.toLocaleLowerCase("en-US") === normalized) ?? null;
 }
 
 export function createLinearIntegration({
@@ -210,9 +218,38 @@ export function createLinearIntegration({
       }));
     },
 
+    async setCodexReady(nativeRef, enabled) {
+      if (!nativeRef?.issueId) throw new Error("Linear issue native reference is incomplete");
+      if (typeof enabled !== "boolean") throw new TypeError("enabled must be a boolean");
+      return withClient(async (client) => {
+        const labels = await client.listIssueLabels();
+        let label = findIssueLabel(labels, CODEX_READY_LABEL);
+        if (!label && !enabled) {
+          return { changed: false, enabled: false, label: null };
+        }
+        if (!label) {
+          label = await client.createIssueLabel({
+            name: CODEX_READY_LABEL,
+            color: CODEX_READY_LABEL_COLOR,
+            description: CODEX_READY_LABEL_DESCRIPTION,
+          });
+        }
+        await client.updateIssue(nativeRef.issueId, enabled
+          ? { addedLabelIds: [label.id] }
+          : { removedLabelIds: [label.id] });
+        return { changed: true, enabled, label };
+      });
+    },
+
     async addComment(nativeRef, body) {
       if (!nativeRef?.issueId) throw new Error("Linear issue native reference is incomplete");
       return withClient((client) => client.createComment(nativeRef.issueId, body));
     },
   };
 }
+
+export {
+  CODEX_READY_LABEL,
+  CODEX_READY_LABEL_COLOR,
+  CODEX_READY_LABEL_DESCRIPTION,
+};
