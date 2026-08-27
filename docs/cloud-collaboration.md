@@ -1,197 +1,97 @@
-# Cloud collaboration
+# Cloud collaboration — inherited upstream mode
 
-Codex Taskboard can run as a small shared Cloudflare deployment for two trusted collaborators:
+> **Important for this fork:** this document describes an inherited upstream Cloudflare/D1 collaboration mode. It is **not** the authoritative storage architecture for Linear-backed Projects.
 
-- one Worker serves the built UI and the JSON API;
-- D1 is the authoritative business database;
-- a private R2 bucket stores attachments;
-- one SQLite-backed Durable Object broadcasts revision changes over hibernating WebSockets;
-- UI, API, and attachment routes use HTTPS Basic Authentication; `/health` is public;
-- open boards refresh when a revision event arrives; reconnects perform one revision check and never poll periodically.
+## Current Linear rule
 
-The production resource names are:
+For Linear-backed Projects:
 
-| Resource | Name |
-| --- | --- |
-| Worker | `board` |
-| D1 database | `codex-taskboard-db` |
-| R2 bucket | `codex-taskboard-attachments` |
-| Durable Object class | `RealtimeHub` |
-
-This is intentionally a shared-password trust model. The Basic username is only the actor name displayed in task and comment attribution, not a verified identity. Anyone who knows the shared password has full read and write access and can choose any actor name. Use it only with the other trusted collaborator.
-
-## What stays local
-
-The cloud stores project, issue, comment, relation, and attachment data. It does not store a device's absolute project or worktree paths.
-
-Each collaborator runs the **local companion**: a **device-local loopback service** (not a chat persona) for Codex, Git/worktree scanning, installed Skill/MCP discovery, and project path mapping. The companion keeps the cloud URL, actor name, shared password, and device-specific project mappings in `.data/cloud-companion.json` with mode `0600`. Ordinary Taskboard HTTP routes (tasks, comments, attachments) are the shared API; they are not a separate “companion API”.
-
-When cloud mode is active, the cloud is the only business-data source. A failed cloud request fails visibly. The companion does not fall back to the local SQLite database and does not write to both databases. `taskctl cloud logout` returns that device to its separate local mode; it does not merge local and cloud data.
-
-## Owner: validate locally
-
-Install dependencies and build the frontend:
-
-```bash
-npm ci
-npm run build:web
+```text
+Linear = authoritative Project / Issue data
+SQLite = local projection/cache + Codex-only metadata
+Codex = execution surface
+Git/GitHub = code and PR workflow
 ```
 
-Create an ignored `.dev.vars` file containing a local-only value for `TASKBOARD_SHARED_SECRET`, apply the D1 migration to Wrangler's local state, and start the Worker:
+Do **not** deploy D1 as a second independently writable copy of Linear Issue state.
+
+The current Linear integration has not been designed or validated as a multi-user Cloudflare deployment. It currently assumes a local Taskboard service that owns the Linear credential and device-specific Codex workspace mapping.
+
+## Why this code is still in the repository
+
+The Cloudflare/D1 implementation remains in the tree because this fork intentionally stays close to upstream Codex Taskboard. Keeping upstream subsystems reduces future merge cost and preserves non-Linear features for possible later use.
+
+Its presence does not mean it is part of the supported Linear workflow.
+
+## Inherited cloud architecture
+
+The upstream mode can run a shared Taskboard using:
+
+- Cloudflare Worker Static Assets and API routes;
+- D1 for Taskboard-native business data;
+- R2 for attachments;
+- a Durable Object for revision notifications;
+- HTTPS Basic Authentication with a shared secret;
+- a device-local companion for Codex/Git/worktree/path mapping.
+
+That model was designed for Taskboard-native Projects where the cloud database is the authoritative Taskboard store.
+
+This conflicts with the Linear fork's core invariant if applied directly to projected Linear Issues, because Linear must remain authoritative.
+
+## What remains device-local
+
+Even if a future Linear-compatible cloud mode is added, these values must remain device-specific unless a separate secure design explicitly changes that rule:
+
+```text
+codexProjectId
+codexProjectKind
+codexHostId
+workspacePath
+thread/runtime integration state
+```
+
+A repository path on one developer machine must never be treated as a shared Linear Project property.
+
+## What a future Linear cloud mode would require
+
+Before cloud collaboration can be considered supported for Linear Projects, the design needs at least:
+
+1. a secure multi-user Linear authorization model, preferably OAuth rather than sharing one Personal API Key;
+2. a clear rule for which server owns Linear polling/webhooks;
+3. a relay/webhook strategy for Linear updates;
+4. per-user/per-device Codex workspace mappings;
+5. no second writable PM database;
+6. claim locking that remains correct across multiple devices;
+7. secret storage and rotation suitable for more than one local user;
+8. end-to-end tests covering two devices attempting to claim the same Linear Issue.
+
+Until then, use the local-first Linear mode described in [`../README.md`](../README.md) and [`linear-setup.zh-TW.md`](linear-setup.zh-TW.md).
+
+## Using the inherited cloud mode for non-Linear work
+
+The upstream Cloudflare implementation and its scripts remain available for developers who intentionally work on the inherited non-Linear Taskboard mode.
+
+Relevant commands still exist in `package.json`, including:
 
 ```bash
 npm run cloud:migrate:local
 npm run dev:cloud
-```
-
-Open the printed loopback URL. The browser shows its native Basic Authentication prompt. Enter any local actor name as the username and the value from `.dev.vars` as the password.
-
-Local Wrangler state lives under `.wrangler/` and is not committed.
-
-## Owner: deploy
-
-Authenticate Wrangler first:
-
-```bash
-npx wrangler login
-npx wrangler whoami
-```
-
-Provision the production D1 database and private R2 bucket using the exact names above.
-
-```bash
-npx wrangler d1 create codex-taskboard-db
-npx wrangler r2 bucket create codex-taskboard-attachments
-```
-
-`wrangler.jsonc` contains one production configuration and identifies the D1 binding by its resource name and `database_id`. A D1 database ID is public metadata and does not grant access, so it can be committed. Wrangler local development creates persistent local equivalents under `.wrangler/`; those are local simulations, not additional Cloudflare environments.
-
-Apply the remote D1 migration and validate the deployment bundle:
-
-```bash
 npm run cloud:migrate
 npm run cloud:deploy:dry-run
-```
-
-Set the shared password through Wrangler's private interactive prompt after the database schema is ready. Do not put the value in `wrangler.jsonc`, a shell command, a log, or a committed file. Then deploy the production Worker:
-
-```bash
-npx wrangler secret put TASKBOARD_SHARED_SECRET
 npm run cloud:deploy
+npm run cloud:data
 ```
 
-These commands create or update Cloudflare resources. This repository contains the production D1 database ID for the binding, but it does not contain the shared password or any API or OAuth token. Keep those credentials out of Git; cloning the repository does not grant access or mean the Worker has already been deployed.
+These commands can create or modify Cloudflare resources. They are not part of normal Linear Taskboard setup and should not be run merely to connect Linear.
 
-Give the other collaborator the deployed Worker HTTPS origin and shared password through a trusted channel. Never publish the password in the repository, an issue, or logs.
+For the original detailed upstream deployment procedure, consult the corresponding documentation in the upstream [`chuspeeism/dashi-taskboard`](https://github.com/chuspeeism/dashi-taskboard) repository at the version being compared/merged.
 
-Current Cloudflare references:
+## Source-of-truth test
 
-- [Workers Static Assets binding](https://developers.cloudflare.com/workers/static-assets/binding/)
-- [Durable Objects with WebSocket Hibernation](https://developers.cloudflare.com/durable-objects/best-practices/websockets/)
-- [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/)
-- [Create an R2 bucket](https://developers.cloudflare.com/r2/buckets/create-buckets/)
-- [Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/)
+When evaluating any future change to this document or cloud code, ask:
 
-## Friend: connect an existing GitHub installation
+> If Linear and the cloud/local projection disagree, which one wins?
 
-The owner follows this device setup too, using the owner's own actor name and checkout path. The friend does not need your local database or your filesystem paths. They update their existing clone and build the current UI:
+For a Linear-backed Project, the answer must remain:
 
-```bash
-git pull --ff-only
-npm ci
-npm run build:web
-```
-
-Start the local companion:
-
-```bash
-CODEX_TASKBOARD_HOST=127.0.0.1 npm start
-```
-
-In a second terminal, configure cloud mode. Use the deployed HTTPS Worker origin, choose the actor name that should appear on their actions, and enter the shared password only at the private `Shared key:` prompt:
-
-```bash
-npm run taskctl -- cloud login \
-  --url https://YOUR-WORKER-ORIGIN \
-  --actor-name "FRIEND-DISPLAY-NAME"
-
-npm run taskctl -- cloud status
-npm run taskctl -- project list
-```
-
-The shared password is not part of the command and is not echoed by the prompt.
-
-For every cloud project used with Codex, map its project ID to that friend's own absolute checkout path:
-
-```bash
-npm run taskctl -- project map PROJECT_ID \
-  --workspace-path /absolute/path/on/their/device
-```
-
-The owner runs the same mapping command with the owner's own path. Mappings are intentionally different on each device and are never synchronized to D1.
-
-Launch the injected Codex window:
-
-```bash
-CODEX_TASKBOARD_HOST=127.0.0.1 npm run codex
-```
-
-`npm run codex` reuses or starts the loopback companion. Keep it running while using the embedded board. The companion supplies local Codex/Git/Skill/MCP capabilities and sends the shared password to the Worker only in the HTTPS Basic `Authorization` header. It does not write that password to D1 or R2, return it to the browser UI, or print it in logs. Device paths also stay off Cloudflare.
-
-Do not point `CODEX_TASKBOARD_URL` directly at the cloud origin for this workflow. `taskctl` talks to the loopback companion, which applies Basic Authentication and the device's local project mapping. If the companion uses a non-default loopback port, set `CODEX_TASKBOARD_COMPANION_URL` to that loopback origin.
-
-## Browser-only access
-
-Either collaborator can open the deployed HTTPS Worker URL directly. The browser's native Basic Authentication prompt asks for:
-
-- username: the actor display name for that browser;
-- password: the shared password.
-
-The browser view supports the shared board and attachments. Device-only Codex, Git/worktree, Skill, and MCP capabilities still require the local companion.
-
-## Rotate or revoke the shared password
-
-The owner rotates the Worker secret using Wrangler's interactive prompt:
-
-```bash
-npx wrangler secret put TASKBOARD_SHARED_SECRET
-```
-
-After rotation, both devices rerun `taskctl cloud login` and enter the new password. Browser-only users must authenticate again; closing the authenticated browser session or clearing site authentication may be necessary because browsers cache Basic credentials.
-
-Because both collaborators share one password, rotation affects both at once. There is no individual-user revocation in this two-person trust model.
-
-## Advanced: one-time import of existing local data
-
-The migration tool takes a consistent SQLite snapshot with `VACUUM INTO`, removes structured device-only paths, exports attachment hashes, and writes a private bundle. The default local paths are:
-
-```bash
-npm run cloud:data -- export \
-  --database .data/taskboard.sqlite \
-  --attachments .data/attachments \
-  --output cloud-migration-exports/initial
-```
-
-The output directory contains issue content and attachment bytes. It is mode-restricted and ignored by Git, but it must still be handled as private data. This export is optional when starting with an empty cloud board.
-
-Before importing, authenticate Wrangler, provision the named D1 and R2 resources, and run `npm run cloud:migrate` so the remote D1 schema exists. The target D1 must contain no projects, and none of the bundle's attachment keys may already exist in R2. Import refuses a non-empty target instead of merging or overwriting it.
-
-Run the one-time Wrangler adapter with an explicit remote-operation acknowledgement:
-
-```bash
-TASKBOARD_MIGRATION_REMOTE=1 npm run cloud:data -- import \
-  --bundle cloud-migration-exports/initial \
-  --adapter ./scripts/wrangler-cloud-adapter.mjs
-
-TASKBOARD_MIGRATION_REMOTE=1 npm run cloud:data -- verify \
-  --bundle cloud-migration-exports/initial \
-  --adapter ./scripts/wrangler-cloud-adapter.mjs
-```
-
-`TASKBOARD_MIGRATION_REMOTE=1` is a deliberate safety gate for these two commands. The adapter uses the current Wrangler login and the production resource names from `wrangler.jsonc`; it does not add a migration HTTP endpoint or store Cloudflare credentials. The commands are not run automatically by deployment, so having the repository does not mean data has already been imported.
-
-The adapter has a local-persistence integration test that does not access remote Cloudflare resources:
-
-```bash
-node --test test/cloud-migration.test.mjs
-```
+> **Linear wins.**
