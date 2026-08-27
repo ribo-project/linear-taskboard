@@ -3,6 +3,7 @@ import { assertLinearClaimable } from "./linear-claim.mjs";
 
 const JSON_BODY_LIMIT = 1024 * 1024;
 const COMMENT_BODY_LIMIT = 100_000;
+const CODEX_READY_LABEL = "codex-ready";
 const LOCAL_CODEX_ACTOR = {
   type: "agent",
   id: "codex-agent",
@@ -152,6 +153,11 @@ function sameThreadBinding(left, right) {
     && left.workspacePath === right.workspacePath;
 }
 
+function hasLabel(task, labelName) {
+  return Array.isArray(task?.labels)
+    && task.labels.some((label) => label.toLocaleLowerCase("en-US") === labelName);
+}
+
 function errorResponse(error) {
   if (Number.isInteger(error?.status)) {
     return {
@@ -230,6 +236,39 @@ async function createLinearComment(integration, request, url, response, task) {
   });
 }
 
+async function setLinearCodexReady(app, integration, request, url, response, task) {
+  assertNoQuery(url, "Linear codex-ready routes");
+  const body = await readJson(request);
+  assertAllowedKeys(body, new Set(["version", "enabled"]));
+  assertVersion(task, body.version);
+  if (typeof body.enabled !== "boolean") {
+    throw requestError(400, "INVALID_FIELD", "'enabled' must be a boolean");
+  }
+  if (task.archivedAt !== null) {
+    throw requestError(409, "TASK_ARCHIVED", "Archived tasks cannot change Codex readiness");
+  }
+
+  const alreadyEnabled = hasLabel(task, CODEX_READY_LABEL);
+  if (alreadyEnabled === body.enabled) {
+    return sendJson(response, 200, { task });
+  }
+
+  await integration.setCodexReady(task.nativeRef, body.enabled);
+  try {
+    await integration.reconcile();
+  } catch {
+    throw requestError(
+      502,
+      "LINEAR_RECONCILE_FAILED",
+      "Linear was updated but Taskboard could not refresh the projection; sync Linear manually",
+    );
+  }
+
+  const refreshed = app.database.getTask(task.id);
+  if (!refreshed) throw requestError(404, "TASK_NOT_FOUND", `Task '${task.id}' does not exist`);
+  sendJson(response, 200, { task: refreshed });
+}
+
 async function moveLinearTask(app, integration, request, url, response, task) {
   assertNoQuery(url, "Linear issue move routes");
   const body = await readJson(request);
@@ -300,7 +339,7 @@ async function moveLinearTask(app, integration, request, url, response, task) {
 
 async function handleLinearProjectionRoute(app, integration, request, url, response) {
   const method = request.method ?? "GET";
-  const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)(?:\/(move|archive|restore|comments|attachments))?/);
+  const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)(?:\/(move|archive|restore|comments|attachments|linear-codex-ready))?/);
   if (taskMatch) {
     const taskId = decodeRouteId(taskMatch[1]);
     const task = taskId ? app.database.getTask(taskId) : null;
@@ -317,6 +356,10 @@ async function handleLinearProjectionRoute(app, integration, request, url, respo
       if (method === "GET" || method === "HEAD") return false;
       if (action === "move" && method === "POST") {
         await moveLinearTask(app, integration, request, url, response, task);
+        return true;
+      }
+      if (action === "linear-codex-ready" && method === "POST") {
+        await setLinearCodexReady(app, integration, request, url, response, task);
         return true;
       }
       sendError(
