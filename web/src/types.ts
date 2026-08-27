@@ -333,7 +333,7 @@ export interface Project {
   id: string;
   name: string;
   workspacePath: string | null;
-  source: "local" | "jira";
+  source: "local" | "jira" | "linear";
   labels: string[];
   issueCount: number;
   createdAt: string;
@@ -425,7 +425,7 @@ export interface Task {
   startDate: string | null;
   dueDate: string | null;
   recurrence: Recurrence | null;
-  source: "local" | "jira";
+  source: "local" | "jira" | "linear";
   externalOrigin?: string | null;
   externalKey?: string | null;
   externalUrl: string | null;
