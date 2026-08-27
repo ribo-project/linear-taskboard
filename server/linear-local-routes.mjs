@@ -1,4 +1,16 @@
+import { isTaskStatus } from "../shared/domain.mjs";
+
 const JSON_BODY_LIMIT = 1024 * 1024;
+const LOCAL_CODEX_ACTOR = {
+  type: "agent",
+  id: "codex-agent",
+  name: "Codex Agent",
+  avatarUrl: null,
+};
+
+function requestError(status, code, message) {
+  return Object.assign(new Error(message), { status, code });
+}
 
 function isLoopbackAddress(value) {
   if (typeof value !== "string") return false;
@@ -35,10 +47,7 @@ async function readJson(request) {
   for await (const chunk of request) {
     size += chunk.length;
     if (size > JSON_BODY_LIMIT) {
-      throw Object.assign(new Error("Request body is too large"), {
-        status: 413,
-        code: "BODY_TOO_LARGE",
-      });
+      throw requestError(413, "BODY_TOO_LARGE", "Request body is too large");
     }
     chunks.push(chunk);
   }
@@ -51,31 +60,78 @@ async function readJson(request) {
     return value;
   } catch (error) {
     if (error?.code === "BODY_TOO_LARGE") throw error;
-    throw Object.assign(new Error("Request body must be valid JSON object"), {
-      status: 400,
-      code: "INVALID_BODY",
-    });
+    throw requestError(400, "INVALID_BODY", "Request body must be valid JSON object");
   }
 }
 
-function assertNoQuery(url) {
+function assertNoQuery(url, label = "Linear connection routes") {
   if ([...url.searchParams.keys()].length > 0) {
-    throw Object.assign(new Error("Linear connection routes do not accept query parameters"), {
-      status: 400,
-      code: "UNKNOWN_QUERY_PARAMETER",
-    });
+    throw requestError(400, "UNKNOWN_QUERY_PARAMETER", `${label} do not accept query parameters`);
+  }
+}
+
+function assertAllowedKeys(body, allowed) {
+  const unknown = Object.keys(body).filter((key) => !allowed.has(key));
+  if (unknown.length > 0) {
+    throw requestError(
+      400,
+      "UNKNOWN_FIELD",
+      `Unknown field${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}`,
+    );
   }
 }
 
 function assertConfigureBody(body) {
-  const allowed = new Set(["apiKey", "teamIds", "projectIds", "assignedToMeOnly"]);
-  const unknown = Object.keys(body).filter((key) => !allowed.has(key));
-  if (unknown.length > 0) {
-    throw Object.assign(new Error(`Unknown field${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}`), {
-      status: 400,
-      code: "UNKNOWN_FIELD",
-    });
+  assertAllowedKeys(body, new Set(["apiKey", "teamIds", "projectIds", "assignedToMeOnly"]));
+}
+
+function assertVersion(current, version) {
+  if (!Number.isSafeInteger(version) || version < 1) {
+    throw requestError(400, "INVALID_FIELD", "'version' must be a positive integer");
   }
+  if (current.version !== version) {
+    throw requestError(409, "VERSION_CONFLICT", "Task changed since it was last read");
+  }
+}
+
+function optionalString(value, name, maxLength) {
+  if (value === undefined || value === null) return value;
+  if (typeof value !== "string" || !value.trim() || value.length > maxLength || value.includes("\0")) {
+    throw requestError(400, "INVALID_FIELD", `'${name}' is invalid`);
+  }
+  return value.trim();
+}
+
+function parseThreadBinding(value) {
+  if (value === undefined || value === null) return value;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw requestError(400, "INVALID_FIELD", "'threadBinding' must be an object or null");
+  }
+  assertAllowedKeys(
+    value,
+    new Set(["threadId", "codexProjectId", "codexProjectKind", "codexHostId", "workspacePath"]),
+  );
+  const threadId = optionalString(value.threadId, "threadBinding.threadId", 256);
+  const codexProjectId = optionalString(value.codexProjectId, "threadBinding.codexProjectId", 512);
+  const codexHostId = optionalString(value.codexHostId, "threadBinding.codexHostId", 512);
+  const workspacePath = optionalString(value.workspacePath, "threadBinding.workspacePath", 4096);
+  if (value.codexProjectKind !== "local" && value.codexProjectKind !== "remote") {
+    throw requestError(
+      400,
+      "INVALID_FIELD",
+      "'threadBinding.codexProjectKind' must be local or remote",
+    );
+  }
+  if (!threadId || !codexProjectId || !codexHostId || !workspacePath) {
+    throw requestError(400, "INVALID_FIELD", "'threadBinding' is incomplete");
+  }
+  return {
+    threadId,
+    codexProjectId,
+    codexProjectKind: value.codexProjectKind,
+    codexHostId,
+    workspacePath,
+  };
 }
 
 function errorResponse(error) {
@@ -111,20 +167,73 @@ function decodeRouteId(value) {
   }
 }
 
-function blockLinearProjectionMutation(app, request, url, response) {
+async function moveLinearTask(app, integration, request, url, response, task) {
+  assertNoQuery(url, "Linear issue move routes");
+  const body = await readJson(request);
+  assertAllowedKeys(body, new Set(["version", "status", "sortOrder", "threadId", "threadBinding"]));
+  assertVersion(task, body.version);
+  if (!isTaskStatus(body.status)) {
+    throw requestError(400, "INVALID_FIELD", "'status' is invalid");
+  }
+  if (task.archivedAt !== null) {
+    throw requestError(409, "TASK_ARCHIVED", "Archived tasks cannot be moved");
+  }
+
+  const threadId = optionalString(body.threadId, "threadId", 256);
+  const threadBinding = parseThreadBinding(body.threadBinding);
+  if (threadId && threadBinding && threadId !== threadBinding.threadId) {
+    throw requestError(400, "INVALID_FIELD", "'threadId' must match 'threadBinding.threadId'");
+  }
+
+  if (body.status !== task.status) {
+    await integration.moveIssue(task.nativeRef, body.status);
+    try {
+      await integration.reconcile();
+    } catch {
+      throw requestError(
+        502,
+        "LINEAR_RECONCILE_FAILED",
+        "Linear was updated but Taskboard could not refresh the projection; sync Linear manually",
+      );
+    }
+  }
+
+  let refreshed = app.database.getTask(task.id);
+  if (!refreshed) throw requestError(404, "TASK_NOT_FOUND", `Task '${task.id}' does not exist`);
+
+  if (threadId !== undefined || threadBinding !== undefined) {
+    refreshed = app.database.moveTask(
+      refreshed.id,
+      refreshed.version,
+      refreshed.status,
+      refreshed.sortOrder,
+      threadId,
+      threadBinding,
+      LOCAL_CODEX_ACTOR,
+    );
+  }
+
+  sendJson(response, 200, { task: refreshed });
+}
+
+async function handleLinearProjectionMutation(app, integration, request, url, response) {
   const method = request.method ?? "GET";
   if (method === "GET" || method === "HEAD") return false;
 
-  const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)/);
+  const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)(?:\/(move|archive|restore|comments|attachments))?/);
   if (taskMatch) {
     const taskId = decodeRouteId(taskMatch[1]);
     const task = taskId ? app.database.getTask(taskId) : null;
     if (task?.source === "linear") {
+      if (taskMatch[2] === "move" && method === "POST") {
+        await moveLinearTask(app, integration, request, url, response, task);
+        return true;
+      }
       sendError(
         response,
         409,
         "LINEAR_READ_ONLY",
-        "Linear issues are read-only in this Taskboard build until write-through is enabled",
+        "This Linear issue field is read-only in Taskboard until its write-through path is enabled",
       );
       return true;
     }
@@ -168,19 +277,19 @@ export function installLinearLocalRoutes(app, integration) {
         return baseRequestHandler.call(app.server, request, response);
       }
 
-      if (blockLinearProjectionMutation(app, request, url, response)) return;
-
-      const connectionRoute = url.pathname === "/api/local/linear-connection";
-      const syncRoute = url.pathname === "/api/local/linear-connection/sync";
-      if (!connectionRoute && !syncRoute) {
-        return baseRequestHandler.call(app.server, request, response);
-      }
-
-      if (!isLoopbackAddress(request.socket.remoteAddress)) {
-        return sendError(response, 403, "LOCAL_ONLY", "Linear connection settings are only available on this device");
-      }
-
       try {
+        if (await handleLinearProjectionMutation(app, integration, request, url, response)) return;
+
+        const connectionRoute = url.pathname === "/api/local/linear-connection";
+        const syncRoute = url.pathname === "/api/local/linear-connection/sync";
+        if (!connectionRoute && !syncRoute) {
+          return baseRequestHandler.call(app.server, request, response);
+        }
+
+        if (!isLoopbackAddress(request.socket.remoteAddress)) {
+          return sendError(response, 403, "LOCAL_ONLY", "Linear connection settings are only available on this device");
+        }
+
         assertNoQuery(url);
         if (connectionRoute) {
           if (request.method === "GET") {
@@ -202,10 +311,7 @@ export function installLinearLocalRoutes(app, integration) {
         }
         const contentLength = Number(request.headers["content-length"] ?? 0);
         if (contentLength > 0) {
-          throw Object.assign(new Error("Linear sync does not accept a request body"), {
-            status: 400,
-            code: "INVALID_BODY",
-          });
+          throw requestError(400, "INVALID_BODY", "Linear sync does not accept a request body");
         }
         const result = await integration.sync({ force: true, archiveMissing: true });
         return sendJson(response, 200, { connection: result.connection });
