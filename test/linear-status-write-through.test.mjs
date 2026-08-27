@@ -13,7 +13,7 @@ function jsonResponse(body, status = 200) {
   });
 }
 
-function createLinearFetch() {
+function createLinearFetch({ codexReady = true, blockerState = null } = {}) {
   let state = { id: "state-todo", name: "Todo", type: "unstarted", position: 1 };
   const mutations = [];
   const states = [
@@ -58,10 +58,28 @@ function createLinearFetch() {
                   state,
                   team: { id: "team-1", key: "RIB", name: "RIB" },
                   project: { id: "project-1", name: "Linear Taskboard" },
-                  labels: { nodes: [{ id: "label-1", name: "codex-ready" }] },
+                  labels: {
+                    nodes: codexReady ? [{ id: "label-1", name: "codex-ready" }] : [],
+                  },
                   assignee: { id: "viewer-1", displayName: "Viewer", avatarUrl: null },
                   creator: { id: "viewer-1", displayName: "Viewer", avatarUrl: null },
                   parent: null,
+                  inverseRelations: {
+                    nodes: blockerState ? [{
+                      id: "relation-blocker",
+                      type: "blocks",
+                      issue: {
+                        id: "blocker-1",
+                        identifier: "RIB-0",
+                        title: "Blocking issue",
+                        url: "https://linear.app/rib/issue/RIB-0/blocker",
+                        state: blockerState,
+                        team: { id: "team-1", key: "RIB", name: "RIB" },
+                        project: { id: "project-1", name: "Linear Taskboard" },
+                      },
+                    }] : [],
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                  },
                 }],
                 pageInfo: { hasNextPage: false, endCursor: null },
               },
@@ -101,9 +119,9 @@ function createLinearFetch() {
   };
 }
 
-async function withConfiguredServer(run) {
+async function withConfiguredServer(run, linearOptions = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "linear-taskboard-status-"));
-  const linear = createLinearFetch();
+  const linear = createLinearFetch(linearOptions);
   const app = createTaskboardServer({ dataDirectory: directory, linearFetch: linear.fetch });
   try {
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
@@ -126,15 +144,20 @@ async function withConfiguredServer(run) {
   }
 }
 
+async function firstLinearTask(baseUrl) {
+  const projects = await fetch(`${baseUrl}/api/projects`).then((response) => response.json());
+  const project = projects.projects.find((candidate) => candidate.source === "linear");
+  assert.ok(project);
+  const tasks = await fetch(`${baseUrl}/api/tasks?projectId=${encodeURIComponent(project.id)}`)
+    .then((response) => response.json());
+  return tasks.tasks[0];
+}
+
 test("Linear issue move writes status to Linear, reconciles, and preserves Codex claim binding", async () => {
   await withConfiguredServer(async ({ baseUrl, linear }) => {
-    const projects = await fetch(`${baseUrl}/api/projects`).then((response) => response.json());
-    const project = projects.projects.find((candidate) => candidate.source === "linear");
-    assert.ok(project);
-    const tasks = await fetch(`${baseUrl}/api/tasks?projectId=${encodeURIComponent(project.id)}`)
-      .then((response) => response.json());
-    const task = tasks.tasks[0];
+    const task = await firstLinearTask(baseUrl);
     assert.equal(task.status, "todo");
+    assert.equal(task.linearDependencies.unblocked, true);
 
     const threadBinding = {
       threadId: "thread-claim-1",
@@ -183,13 +206,92 @@ test("Linear issue move writes status to Linear, reconciles, and preserves Codex
   });
 });
 
+test("Linear claim rejects todo without codex-ready before touching Linear", async () => {
+  await withConfiguredServer(async ({ baseUrl, linear }) => {
+    const task = await firstLinearTask(baseUrl);
+    const response = await fetch(`${baseUrl}/api/tasks/${encodeURIComponent(task.id)}/move`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ version: task.version, status: "in_progress" }),
+    });
+    assert.equal(response.status, 409);
+    const body = await response.json();
+    assert.equal(body.error.code, "LINEAR_NOT_CLAIMABLE");
+    assert.match(body.error.message, /MISSING_CODEX_READY/);
+    assert.equal(linear.mutations.length, 0);
+  }, { codexReady: false });
+});
+
+test("Linear claim rejects unresolved blockers before touching Linear", async () => {
+  await withConfiguredServer(async ({ baseUrl, linear }) => {
+    const task = await firstLinearTask(baseUrl);
+    assert.equal(task.linearDependencies.unresolvedCount, 1);
+    const response = await fetch(`${baseUrl}/api/tasks/${encodeURIComponent(task.id)}/move`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ version: task.version, status: "in_progress" }),
+    });
+    assert.equal(response.status, 409);
+    const body = await response.json();
+    assert.equal(body.error.code, "LINEAR_NOT_CLAIMABLE");
+    assert.match(body.error.message, /BLOCKED_BY_DEPENDENCY/);
+    assert.equal(linear.mutations.length, 0);
+  }, {
+    blockerState: { id: "blocker-progress", name: "In Progress", type: "started", position: 2 },
+  });
+});
+
+test("Linear bound todo can continue only with the exact saved binding", async () => {
+  await withConfiguredServer(async ({ app, baseUrl, linear }) => {
+    const task = await firstLinearTask(baseUrl);
+    const savedBinding = {
+      threadId: "thread-existing",
+      codexProjectId: "codex-project-1",
+      codexProjectKind: "local",
+      codexHostId: "local",
+      workspacePath: "/workspace/project-1",
+    };
+    const locallyBound = app.database.moveTask(
+      task.id,
+      task.version,
+      task.status,
+      task.sortOrder,
+      savedBinding.threadId,
+      savedBinding,
+      { type: "agent", id: "test", name: "Test", avatarUrl: null },
+    );
+
+    const mismatch = await fetch(`${baseUrl}/api/tasks/${encodeURIComponent(task.id)}/move`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version: locallyBound.version,
+        status: "in_progress",
+        threadBinding: { ...savedBinding, threadId: "thread-other" },
+      }),
+    });
+    assert.equal(mismatch.status, 409);
+    assert.equal((await mismatch.json()).error.code, "LINEAR_BINDING_MISMATCH");
+    assert.equal(linear.mutations.length, 0);
+
+    const continued = await fetch(`${baseUrl}/api/tasks/${encodeURIComponent(task.id)}/move`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version: locallyBound.version,
+        status: "in_progress",
+        threadBinding: savedBinding,
+      }),
+    });
+    assert.equal(continued.status, 200);
+    assert.equal((await continued.json()).task.status, "in_progress");
+    assert.equal(linear.mutations.length, 1);
+  });
+});
+
 test("Linear issue move rejects stale versions before touching Linear", async () => {
   await withConfiguredServer(async ({ baseUrl, linear }) => {
-    const projects = await fetch(`${baseUrl}/api/projects`).then((response) => response.json());
-    const project = projects.projects.find((candidate) => candidate.source === "linear");
-    const tasks = await fetch(`${baseUrl}/api/tasks?projectId=${encodeURIComponent(project.id)}`)
-      .then((response) => response.json());
-    const task = tasks.tasks[0];
+    const task = await firstLinearTask(baseUrl);
 
     const response = await fetch(`${baseUrl}/api/tasks/${encodeURIComponent(task.id)}/move`, {
       method: "POST",
