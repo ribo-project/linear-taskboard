@@ -3,6 +3,12 @@ html[data-linear-project="true"] .add-task-button {
   display: none !important;
 }
 
+html[data-linear-project="true"] [data-task-id] .card-property-control,
+html[data-linear-project="true"] [data-task-id] .task-card-complete {
+  pointer-events: none;
+  opacity: 0.72;
+}
+
 .linear-readonly-badge {
   display: inline-flex;
   align-items: center;
