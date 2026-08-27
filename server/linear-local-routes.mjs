@@ -1,4 +1,5 @@
 import { isTaskStatus } from "../shared/domain.mjs";
+import { assertLinearClaimable } from "./linear-claim.mjs";
 
 const JSON_BODY_LIMIT = 1024 * 1024;
 const COMMENT_BODY_LIMIT = 100_000;
@@ -142,6 +143,15 @@ function parseThreadBinding(value) {
   };
 }
 
+function sameThreadBinding(left, right) {
+  if (!left || !right) return false;
+  return left.threadId === right.threadId
+    && left.codexProjectId === right.codexProjectId
+    && left.codexProjectKind === right.codexProjectKind
+    && left.codexHostId === right.codexHostId
+    && left.workspacePath === right.workspacePath;
+}
+
 function errorResponse(error) {
   if (Number.isInteger(error?.status)) {
     return {
@@ -236,6 +246,25 @@ async function moveLinearTask(app, integration, request, url, response, task) {
   const threadBinding = parseThreadBinding(body.threadBinding);
   if (threadId && threadBinding && threadId !== threadBinding.threadId) {
     throw requestError(400, "INVALID_FIELD", "'threadId' must match 'threadBinding.threadId'");
+  }
+
+  if (task.status === "todo" && body.status === "in_progress") {
+    if (task.threadId && !task.threadBinding) {
+      throw requestError(
+        409,
+        "LINEAR_LEGACY_BINDING",
+        "A Linear issue with a legacy thread binding cannot be claimed until that binding is reconciled",
+      );
+    }
+    const continuingBoundTask = Boolean(task.threadBinding);
+    if (continuingBoundTask && !sameThreadBinding(task.threadBinding, threadBinding)) {
+      throw requestError(
+        409,
+        "LINEAR_BINDING_MISMATCH",
+        "A bound Linear issue can only continue with its existing Codex thread binding",
+      );
+    }
+    assertLinearClaimable(task, { allowExistingBinding: continuingBoundTask });
   }
 
   if (body.status !== task.status) {
