@@ -35,24 +35,44 @@ test("Linear client sends the personal API key in Authorization", async () => {
   assert.equal(viewer.organization.id, "org-1");
 });
 
-test("Linear client follows cursor pagination for assigned issues", async () => {
+test("Linear client follows cursor pagination for assigned issues and requests incoming blocker relations", async () => {
   const variablesSeen = [];
+  const queriesSeen = [];
   const client = createLinearClient({
     apiKey: "lin_api_test",
     fetch: async (_url, init) => {
       const body = JSON.parse(init.body);
       variablesSeen.push(body.variables);
+      queriesSeen.push(body.query);
       const after = body.variables.after;
       return jsonResponse({
         data: {
           viewer: {
             assignedIssues: after === null
               ? {
-                  nodes: [{ id: "issue-1", identifier: "RIB-1" }],
+                  nodes: [{
+                    id: "issue-1",
+                    identifier: "RIB-1",
+                    inverseRelations: {
+                      nodes: [{
+                        id: "rel-1",
+                        type: "blocks",
+                        issue: { id: "blocker-1", identifier: "RIB-0" },
+                      }],
+                      pageInfo: { hasNextPage: false, endCursor: "rel-1" },
+                    },
+                  }],
                   pageInfo: { hasNextPage: true, endCursor: "cursor-1" },
                 }
               : {
-                  nodes: [{ id: "issue-2", identifier: "RIB-2" }],
+                  nodes: [{
+                    id: "issue-2",
+                    identifier: "RIB-2",
+                    inverseRelations: {
+                      nodes: [],
+                      pageInfo: { hasNextPage: false, endCursor: null },
+                    },
+                  }],
                   pageInfo: { hasNextPage: false, endCursor: "cursor-2" },
                 },
           },
@@ -64,6 +84,8 @@ test("Linear client follows cursor pagination for assigned issues", async () => 
   const issues = await client.listIssues();
   assert.deepEqual(issues.map((issue) => issue.identifier), ["RIB-1", "RIB-2"]);
   assert.deepEqual(variablesSeen.map((entry) => entry.after), [null, "cursor-1"]);
+  assert.ok(queriesSeen.every((query) => query.includes("inverseRelations(first: 100)")));
+  assert.equal(issues[0].inverseRelations.nodes[0].type, "blocks");
 });
 
 test("Linear client turns GraphQL errors into LinearApiError even on HTTP 200", async () => {
