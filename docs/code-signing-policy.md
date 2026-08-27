@@ -1,51 +1,58 @@
 # Code signing policy
 
-For official Windows releases after the application is approved: **Free code
-signing provided by [SignPath.io](https://signpath.io/), certificate by
-[SignPath Foundation](https://signpath.org/).** Current Windows
-continuous-integration artifacts remain unsigned until that approval.
+## Current fork status
 
-## Scope
+This Linear-backed fork **does not currently publish an official signed desktop release**.
 
-This policy applies to official Windows executables and installers published
-by the Codex Taskboard project. Development builds, pull-request artifacts,
-and local builds are not signed.
+Windows CI artifacts and local Windows builds are unsigned. macOS local builds are development builds and are not a substitute for Developer ID signing and Apple notarization.
 
-## Team roles
+The upstream project's signing sponsorship, certificates, maintainers, approval roles, or release process must **not** be presented as if they automatically apply to `ribo-project/linear-taskboard`.
 
-- Authors and committers: [@jadon7](https://github.com/jadon7) and
-  [@chuspeeism](https://github.com/chuspeeism).
-- Reviewers: [@jadon7](https://github.com/jadon7) and
-  [@chuspeeism](https://github.com/chuspeeism). Changes from other
-  contributors are reviewed through pull requests before merge.
-- Approver: repository owner
-  [@chuspeeism](https://github.com/chuspeeism). Every signing request requires
-  manual approval.
+## Distribution rule
 
-## Build and approval
+Until a fork-specific signing process is established:
 
-- Signing inputs must come from the public repository and a GitHub-hosted
-  Actions workflow. Artifacts built on a developer computer are not eligible.
-- The source revision and workflow run must be recorded for each signed
-  artifact.
-- A project maintainer must review the release changes and manually approve
-  every signing request.
-- Signing roles must use individual accounts with multi-factor authentication.
-  Signing credentials must not be stored in the repository or workflow logs.
-- A signed artifact must be published without modification after signing.
+- treat GitHub Actions artifacts as development/test artifacts;
+- do not describe them as trusted production installers;
+- do not copy upstream SignPath approval or certificate claims into release notes for this fork;
+- verify the exact source revision and workflow before using a CI-built installer;
+- prefer local/internal validation while the Linear integration is still in desktop smoke-test stage.
+
+## Future Windows signing
+
+If this fork later publishes signed Windows releases, the process must be approved specifically for this repository and organization.
+
+A future signing policy should define:
+
+- the actual signing provider and certificate owner;
+- repository-specific maintainers/reviewers/approvers;
+- GitHub Actions workflow used to build the signing input;
+- manual approval requirements;
+- MFA/account requirements;
+- incident response and certificate revocation procedure;
+- release provenance and artifact retention.
+
+No provider is claimed by this document until that process is actually configured for the fork.
+
+## macOS
+
+A public macOS build requires a fork-specific Apple Developer signing/notarization process. Development/ad-hoc builds are for local verification only.
 
 ## Privacy
 
-Codex Taskboard's data handling and network activity are documented in the
-[Privacy policy](../PRIVACY.md).
+Data handling and external network activity, including Linear API use, are documented in the [Privacy policy](../PRIVACY.md).
 
-## Incident response
+## Current release boundary
 
-If a signing credential or signed artifact is suspected to be compromised,
-maintainers stop signing and distribution, preserve the related workflow and
-artifact records, notify the signing provider, and request certificate
-revocation when required. A replacement release is built from a reviewed
-source revision after the incident is resolved.
+The current development target is to complete a real Codex Desktop smoke test of the Linear workflow before defining an official release channel:
 
-Security reports should use the repository's private vulnerability-reporting
-channel. Non-sensitive signing questions can use the public issue tracker.
+```text
+Linear Todo + codex-ready
+→ Codex claim
+→ In Progress
+→ execution
+→ Linear comment
+→ In Review
+```
+
+Signing/distribution work should follow that functional validation rather than precede it.
