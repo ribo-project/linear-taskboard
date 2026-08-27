@@ -100,11 +100,13 @@ function createLinearFetch() {
     if (body.query.includes("LinearTaskboardWorkflowStates")) {
       return jsonResponse({
         data: {
-          workflowStates: {
-            nodes: [
-              { id: "state-progress", name: "In Progress", type: "started", position: 2 },
-              { id: "state-review", name: "In Review", type: "started", position: 3 },
-            ],
+          team: {
+            states: {
+              nodes: [
+                { id: "state-progress", name: "In Progress", type: "started", position: 2 },
+                { id: "state-review", name: "In Review", type: "started", position: 3 },
+              ],
+            },
           },
         },
       });
