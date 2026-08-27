@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   chooseLinearWorkflowState,
+  linearDependenciesFromIssue,
   linearOriginId,
   linearPriorityFromTask,
   normalizeLinearIssue,
@@ -34,6 +35,45 @@ test("Linear priority mapping round trips supported priorities", () => {
   }
 });
 
+test("Linear blockers are read from incoming blocks relations and fail closed on truncation", () => {
+  const dependencies = linearDependenciesFromIssue({
+    inverseRelations: {
+      nodes: [
+        {
+          id: "rel-blocks",
+          type: "blocks",
+          issue: {
+            id: "blocker-1",
+            identifier: "RIB-41",
+            title: "Prepare schema",
+            url: "https://linear.app/example/issue/RIB-41/prepare-schema",
+            state: { id: "state-progress", name: "In Progress", type: "started" },
+            team: { id: "team-uuid", key: "RIB" },
+            project: { id: "project-other", name: "Platform" },
+          },
+        },
+        {
+          id: "rel-related",
+          type: "related",
+          issue: {
+            id: "related-1",
+            identifier: "RIB-10",
+            title: "Reference only",
+          },
+        },
+      ],
+      pageInfo: { hasNextPage: true, endCursor: "more" },
+    },
+  });
+
+  assert.equal(dependencies.complete, false);
+  assert.equal(dependencies.blockedBy.length, 1);
+  assert.equal(dependencies.blockedBy[0].identifier, "RIB-41");
+  assert.equal(dependencies.blockedBy[0].status, "in_progress");
+  assert.equal(dependencies.blockedBy[0].resolved, false);
+  assert.equal(dependencies.blockedBy[0].projectId, "project-other");
+});
+
 test("normalizeLinearIssue preserves Linear identity without making it the local primary key", () => {
   const issue = normalizeLinearIssue({
     id: "issue-uuid",
@@ -52,6 +92,22 @@ test("normalizeLinearIssue preserves Linear identity without making it the local
     assignee: { id: "user-1", displayName: "Developer", avatarUrl: null },
     creator: { id: "user-2", name: "Planner", avatarUrl: null },
     parent: { id: "parent-id", identifier: "RIB-40" },
+    inverseRelations: {
+      nodes: [{
+        id: "relation-1",
+        type: "blocks",
+        issue: {
+          id: "blocker-id",
+          identifier: "RIB-41",
+          title: "Prepare schema",
+          url: "https://linear.app/example/issue/RIB-41/prepare-schema",
+          state: { id: "state-done", name: "Done", type: "completed", position: 5 },
+          team: { id: "team-uuid", key: "RIB", name: "RIB" },
+          project: { id: "project-uuid", name: "Linear Taskboard" },
+        },
+      }],
+      pageInfo: { hasNextPage: false, endCursor: "relation-1" },
+    },
   }, {
     organizationId: "org-uuid",
     organizationName: "RIB Workspace",
@@ -65,6 +121,9 @@ test("normalizeLinearIssue preserves Linear identity without making it the local
   assert.equal(issue.nativeRef.teamId, "team-uuid");
   assert.equal(issue.nativeRef.projectId, "project-uuid");
   assert.equal(issue.nativeRef.parentIdentifier, "RIB-40");
+  assert.equal(issue.nativeRef.dependenciesComplete, true);
+  assert.equal(issue.linearDependencies.blockedBy[0].identifier, "RIB-41");
+  assert.equal(issue.linearDependencies.blockedBy[0].resolved, true);
   assert.equal(issue.project.name, "Linear Taskboard");
 });
 
