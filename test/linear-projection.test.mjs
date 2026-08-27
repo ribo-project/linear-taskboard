@@ -9,11 +9,13 @@ import { installLinearProjection } from "../server/linear-projection.mjs";
 
 async function withDatabase(run) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "linear-taskboard-projection-"));
+  let database = null;
   try {
-    const database = new TaskboardDatabase(path.join(directory, "taskboard.sqlite"));
+    database = new TaskboardDatabase(path.join(directory, "taskboard.sqlite"));
     installLinearProjection(database);
     await run(database);
   } finally {
+    database?.close();
     await rm(directory, { recursive: true, force: true });
   }
 }
