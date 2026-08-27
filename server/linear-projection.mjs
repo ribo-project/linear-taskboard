@@ -28,10 +28,39 @@ function taskRefMap(sqlite, ids) {
   if (ids.length === 0) return new Map();
   const placeholders = ids.map(() => "?").join(", ");
   return new Map(sqlite.prepare(`
-    SELECT task_id, external_origin, issue_id, native_ref
+    SELECT task_id, external_origin, issue_id, native_ref, dependencies_complete
     FROM linear_task_refs
     WHERE task_id IN (${placeholders})
   `).all(...ids).map((row) => [row.task_id, row]));
+}
+
+function dependencyMap(sqlite, ids) {
+  const result = new Map(ids.map((id) => [id, []]));
+  if (ids.length === 0) return result;
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = sqlite.prepare(`
+    SELECT
+      task_id,
+      blocker_issue_id,
+      blocker_identifier,
+      blocker_title,
+      blocker_url,
+      blocker_state_id,
+      blocker_state_type,
+      blocker_state_name,
+      blocker_status,
+      blocker_team_id,
+      blocker_team_key,
+      blocker_project_id,
+      blocker_project_name,
+      blocker_task_id,
+      resolved
+    FROM linear_dependency_refs
+    WHERE task_id IN (${placeholders})
+    ORDER BY blocker_identifier, blocker_issue_id
+  `).all(...ids);
+  for (const row of rows) result.get(row.task_id)?.push(row);
+  return result;
 }
 
 function decorateProject(project, ref) {
@@ -45,14 +74,38 @@ function decorateProject(project, ref) {
   };
 }
 
-function decorateTask(task, ref) {
+function decorateTask(task, ref, dependencyRows = []) {
   if (!task || !ref) return task;
+  const blockedBy = dependencyRows.map((row) => ({
+    issueId: row.blocker_issue_id,
+    identifier: row.blocker_identifier,
+    title: row.blocker_title,
+    url: row.blocker_url,
+    stateId: row.blocker_state_id,
+    stateType: row.blocker_state_type,
+    stateName: row.blocker_state_name,
+    status: row.blocker_status,
+    teamId: row.blocker_team_id,
+    teamKey: row.blocker_team_key,
+    projectId: row.blocker_project_id,
+    projectName: row.blocker_project_name,
+    taskId: row.blocker_task_id,
+    resolved: row.resolved === 1,
+  }));
+  const unresolvedCount = blockedBy.filter((dependency) => !dependency.resolved).length;
+  const complete = ref.dependencies_complete === 1;
   return {
     ...task,
     source: "linear",
     externalOrigin: ref.external_origin,
     externalId: ref.issue_id,
     nativeRef: parseJson(ref.native_ref, null),
+    linearDependencies: {
+      complete,
+      blockedBy,
+      unresolvedCount,
+      unblocked: complete && unresolvedCount === 0,
+    },
   };
 }
 
@@ -89,19 +142,26 @@ function installDatabaseDecorators(database, sqlite) {
 
   database.listTasks = (...args) => {
     const tasks = listTasks(...args);
-    const refs = taskRefMap(sqlite, tasks.map((task) => task.id));
-    return tasks.map((task) => decorateTask(task, refs.get(task.id)));
+    const ids = tasks.map((task) => task.id);
+    const refs = taskRefMap(sqlite, ids);
+    const dependencies = dependencyMap(sqlite, ids);
+    return tasks.map((task) => decorateTask(
+      task,
+      refs.get(task.id),
+      dependencies.get(task.id) ?? [],
+    ));
   };
 
   database.getTask = (...args) => {
     const task = getTask(...args);
     if (!task) return task;
     const ref = sqlite.prepare(`
-      SELECT task_id, external_origin, issue_id, native_ref
+      SELECT task_id, external_origin, issue_id, native_ref, dependencies_complete
       FROM linear_task_refs
       WHERE task_id = ?
     `).get(task.id);
-    return decorateTask(task, ref);
+    const dependencies = ref ? dependencyMap(sqlite, [task.id]).get(task.id) ?? [] : [];
+    return decorateTask(task, ref, dependencies);
   };
 
   database.createTask = (input, ...args) => {
@@ -150,12 +210,47 @@ function migrate(sqlite) {
       task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
       external_origin TEXT NOT NULL,
       issue_id TEXT NOT NULL,
-      native_ref TEXT NOT NULL
+      native_ref TEXT NOT NULL,
+      dependencies_complete INTEGER NOT NULL DEFAULT 0 CHECK (dependencies_complete IN (0, 1))
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS linear_task_refs_origin_issue
       ON linear_task_refs(external_origin, issue_id);
+
+    CREATE TABLE IF NOT EXISTS linear_dependency_refs (
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      blocker_issue_id TEXT NOT NULL,
+      blocker_identifier TEXT NOT NULL,
+      blocker_title TEXT NOT NULL,
+      blocker_url TEXT,
+      blocker_state_id TEXT,
+      blocker_state_type TEXT,
+      blocker_state_name TEXT,
+      blocker_status TEXT NOT NULL,
+      blocker_team_id TEXT,
+      blocker_team_key TEXT,
+      blocker_project_id TEXT,
+      blocker_project_name TEXT,
+      blocker_task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      resolved INTEGER NOT NULL CHECK (resolved IN (0, 1)),
+      PRIMARY KEY (task_id, blocker_issue_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS linear_dependency_refs_task_resolved
+      ON linear_dependency_refs(task_id, resolved, blocker_identifier);
+
+    CREATE INDEX IF NOT EXISTS linear_dependency_refs_blocker_task
+      ON linear_dependency_refs(blocker_task_id);
   `);
+
+  const taskRefColumns = sqlite.prepare("PRAGMA table_info(linear_task_refs)").all();
+  if (!taskRefColumns.some((column) => column.name === "dependencies_complete")) {
+    sqlite.exec(`
+      ALTER TABLE linear_task_refs
+      ADD COLUMN dependencies_complete INTEGER NOT NULL DEFAULT 0
+        CHECK (dependencies_complete IN (0, 1))
+    `);
+  }
 }
 
 export function installLinearProjection(database) {
@@ -230,12 +325,36 @@ export function installLinearProjection(database) {
       updated_at = excluded.updated_at
   `);
   const upsertTaskRef = sqlite.prepare(`
-    INSERT INTO linear_task_refs (task_id, external_origin, issue_id, native_ref)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO linear_task_refs (
+      task_id, external_origin, issue_id, native_ref, dependencies_complete
+    ) VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(task_id) DO UPDATE SET
       external_origin = excluded.external_origin,
       issue_id = excluded.issue_id,
-      native_ref = excluded.native_ref
+      native_ref = excluded.native_ref,
+      dependencies_complete = excluded.dependencies_complete
+  `);
+  const deleteDependencies = sqlite.prepare(`
+    DELETE FROM linear_dependency_refs WHERE task_id = ?
+  `);
+  const insertDependency = sqlite.prepare(`
+    INSERT INTO linear_dependency_refs (
+      task_id,
+      blocker_issue_id,
+      blocker_identifier,
+      blocker_title,
+      blocker_url,
+      blocker_state_id,
+      blocker_state_type,
+      blocker_state_name,
+      blocker_status,
+      blocker_team_id,
+      blocker_team_key,
+      blocker_project_id,
+      blocker_project_name,
+      blocker_task_id,
+      resolved
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const listExisting = sqlite.prepare(`
     SELECT id
@@ -266,6 +385,11 @@ export function installLinearProjection(database) {
       projectIssues.push(issue);
       issuesByProject.set(issue.project.id, projectIssues);
     }
+    const taskIdByExternalIssueId = new Map(issues.map((issue) => [issue.externalId, issue.id]));
+
+    let dependencyCount = 0;
+    let unresolvedDependencyCount = 0;
+    let incompleteDependencyIssueCount = 0;
 
     sqlite.exec("BEGIN IMMEDIATE");
     try {
@@ -321,17 +445,47 @@ export function installLinearProjection(database) {
           issue.createdAt ?? timestamp,
           issue.updatedAt ?? timestamp,
         );
+        const dependenciesComplete = issue.linearDependencies?.complete === true;
         upsertTaskRef.run(
           issue.id,
           originId,
           issue.externalId,
           JSON.stringify(issue.nativeRef ?? null),
+          dependenciesComplete ? 1 : 0,
         );
+        if (!dependenciesComplete) incompleteDependencyIssueCount += 1;
+      }
+
+      for (const issue of issues) {
+        deleteDependencies.run(issue.id);
+        for (const dependency of issue.linearDependencies?.blockedBy ?? []) {
+          dependencyCount += 1;
+          if (!dependency.resolved) unresolvedDependencyCount += 1;
+          insertDependency.run(
+            issue.id,
+            dependency.issueId,
+            dependency.identifier,
+            dependency.title,
+            dependency.url ?? null,
+            dependency.stateId ?? null,
+            dependency.stateType ?? null,
+            dependency.stateName ?? null,
+            dependency.status,
+            dependency.teamId ?? null,
+            dependency.teamKey ?? null,
+            dependency.projectId ?? null,
+            dependency.projectName ?? null,
+            taskIdByExternalIssueId.get(dependency.issueId) ?? null,
+            dependency.resolved ? 1 : 0,
+          );
+        }
       }
 
       if (archiveMissing) {
         for (const row of listExisting.all(originId)) {
-          if (!seenTaskIds.has(row.id)) archiveTask.run(timestamp, timestamp, row.id);
+          if (seenTaskIds.has(row.id)) continue;
+          deleteDependencies.run(row.id);
+          archiveTask.run(timestamp, timestamp, row.id);
         }
       }
       sqlite.exec("COMMIT");
@@ -343,6 +497,9 @@ export function installLinearProjection(database) {
     return {
       projectCount: projects.length,
       issueCount: issues.length,
+      dependencyCount,
+      unresolvedDependencyCount,
+      incompleteDependencyIssueCount,
     };
   }
 
