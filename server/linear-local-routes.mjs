@@ -1,6 +1,7 @@
 import { isTaskStatus } from "../shared/domain.mjs";
 
 const JSON_BODY_LIMIT = 1024 * 1024;
+const COMMENT_BODY_LIMIT = 100_000;
 const LOCAL_CODEX_ACTOR = {
   type: "agent",
   id: "codex-agent",
@@ -102,6 +103,13 @@ function optionalString(value, name, maxLength) {
   return value.trim();
 }
 
+function requiredText(value, name, maxLength) {
+  if (typeof value !== "string" || !value.trim() || value.length > maxLength || value.includes("\0")) {
+    throw requestError(400, "INVALID_FIELD", `'${name}' is invalid`);
+  }
+  return value;
+}
+
 function parseThreadBinding(value) {
   if (value === undefined || value === null) return value;
   if (typeof value !== "object" || Array.isArray(value)) {
@@ -167,6 +175,51 @@ function decodeRouteId(value) {
   }
 }
 
+function normalizeLinearComment(task, comment, fallbackViewer = null) {
+  const user = comment?.user ?? fallbackViewer;
+  const userId = user?.id ?? "unknown";
+  return {
+    id: `linear-comment:${comment.id}`,
+    taskId: task.id,
+    body: comment.body ?? "",
+    authorType: "user",
+    authorId: `linear:${userId}`,
+    authorName: user?.displayName ?? user?.name ?? fallbackViewer?.name ?? "Linear",
+    authorAvatarUrl: user?.avatarUrl ?? fallbackViewer?.avatarUrl ?? null,
+    threadId: null,
+    threadBinding: null,
+    legacyLocalThreadId: null,
+    attachments: [],
+    version: 1,
+    createdAt: comment.createdAt,
+    updatedAt: comment.updatedAt ?? comment.createdAt,
+  };
+}
+
+async function listLinearComments(integration, url, response, task) {
+  assertNoQuery(url, "Linear comment routes");
+  const comments = await integration.listComments(task.nativeRef);
+  const connection = await integration.status();
+  sendJson(response, 200, {
+    comments: comments.map((comment) => normalizeLinearComment(task, comment, connection.viewer)),
+    nextCursor: "0",
+  });
+}
+
+async function createLinearComment(integration, request, url, response, task) {
+  assertNoQuery(url, "Linear comment routes");
+  const body = await readJson(request);
+  assertAllowedKeys(body, new Set(["body", "threadId", "threadBinding"]));
+  const text = requiredText(body.body, "body", COMMENT_BODY_LIMIT);
+  if (body.threadId !== undefined) optionalString(body.threadId, "threadId", 256);
+  if (body.threadBinding !== undefined) parseThreadBinding(body.threadBinding);
+  const comment = await integration.addComment(task.nativeRef, text);
+  const connection = await integration.status();
+  sendJson(response, 201, {
+    comment: normalizeLinearComment(task, comment, connection.viewer),
+  });
+}
+
 async function moveLinearTask(app, integration, request, url, response, task) {
   assertNoQuery(url, "Linear issue move routes");
   const body = await readJson(request);
@@ -216,16 +269,24 @@ async function moveLinearTask(app, integration, request, url, response, task) {
   sendJson(response, 200, { task: refreshed });
 }
 
-async function handleLinearProjectionMutation(app, integration, request, url, response) {
+async function handleLinearProjectionRoute(app, integration, request, url, response) {
   const method = request.method ?? "GET";
-  if (method === "GET" || method === "HEAD") return false;
-
   const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)(?:\/(move|archive|restore|comments|attachments))?/);
   if (taskMatch) {
     const taskId = decodeRouteId(taskMatch[1]);
     const task = taskId ? app.database.getTask(taskId) : null;
     if (task?.source === "linear") {
-      if (taskMatch[2] === "move" && method === "POST") {
+      const action = taskMatch[2];
+      if (action === "comments" && method === "GET") {
+        await listLinearComments(integration, url, response, task);
+        return true;
+      }
+      if (action === "comments" && method === "POST") {
+        await createLinearComment(integration, request, url, response, task);
+        return true;
+      }
+      if (method === "GET" || method === "HEAD") return false;
+      if (action === "move" && method === "POST") {
         await moveLinearTask(app, integration, request, url, response, task);
         return true;
       }
@@ -239,6 +300,7 @@ async function handleLinearProjectionMutation(app, integration, request, url, re
     }
   }
 
+  if (method === "GET" || method === "HEAD") return false;
   const projectMatch = url.pathname.match(/^\/api\/projects\/([^/]+)/);
   if (projectMatch) {
     const projectId = decodeRouteId(projectMatch[1]);
@@ -278,7 +340,7 @@ export function installLinearLocalRoutes(app, integration) {
       }
 
       try {
-        if (await handleLinearProjectionMutation(app, integration, request, url, response)) return;
+        if (await handleLinearProjectionRoute(app, integration, request, url, response)) return;
 
         const connectionRoute = url.pathname === "/api/local/linear-connection";
         const syncRoute = url.pathname === "/api/local/linear-connection/sync";
