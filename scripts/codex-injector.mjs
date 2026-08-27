@@ -26,6 +26,7 @@ import { summarizeRunnableTodos } from "../shared/taskboard-runnable-todo.mjs";
 import {
   findResidentInjectorPids,
   handleHostBindingPayload,
+  reconcileExistingInjection,
   reconcileInjectionRuntime,
   restartResidentInjector,
 } from "./codex-injector-runtime.mjs";
@@ -262,6 +263,7 @@ function startTaskboard({ detached }) {
     cwd: projectRoot,
     detached,
     stdio,
+    windowsHide: process.platform === "win32",
   });
 }
 
@@ -711,11 +713,26 @@ function processCwd(pid) {
 }
 
 function residentInjectorPids(port) {
-  const processes = spawnSync("/bin/ps", ["-axo", "pid=,command="], {
-    encoding: "utf8",
-    env: withoutTaskboardLauncherEnvironment(process.env),
-    maxBuffer: 4 * 1024 * 1024,
-  });
+  const processes = process.platform === "win32"
+    ? spawnSync(
+      windowsPowerShellPath(),
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | ForEach-Object { $command = [string]$_.CommandLine; if ($command) { '{0} {1}' -f $_.ProcessId, $command } }",
+      ],
+      {
+        encoding: "utf8",
+        windowsHide: true,
+        maxBuffer: 4 * 1024 * 1024,
+      },
+    )
+    : spawnSync("/bin/ps", ["-axo", "pid=,command="], {
+      encoding: "utf8",
+      env: withoutTaskboardLauncherEnvironment(process.env),
+      maxBuffer: 4 * 1024 * 1024,
+    });
   if (processes.status !== 0) return [];
   return findResidentInjectorPids({
     processList: processes.stdout,
@@ -724,7 +741,7 @@ function residentInjectorPids(port) {
     projectRoot,
     port,
     defaultPort: defaultCodexDebuggingPort,
-    cwdForPid: processCwd,
+    cwdForPid: process.platform === "win32" ? () => null : processCwd,
   });
 }
 
@@ -733,10 +750,13 @@ function startResidentInjector(
   shouldOpen,
   attachExisting = false,
   startupToken = null,
+  launch = false,
 ) {
   const [existingPid] = residentInjectorPids(port);
   if (existingPid) return { pid: existingPid, started: false };
-  const args = [injectorPath, "--watch", "--port", String(port)];
+  const args = [injectorPath];
+  if (launch) args.push("--launch");
+  args.push("--watch", "--port", String(port));
   if (shouldOpen) args.push("--open");
   if (attachExisting) args.push("--attach-existing");
   if (startupToken) args.push("--startup-token", startupToken);
@@ -744,6 +764,7 @@ function startResidentInjector(
     cwd: projectRoot,
     detached: true,
     stdio: "ignore",
+    windowsHide: process.platform === "win32",
   });
   child.unref();
   return { pid: child.pid, started: true };
@@ -1861,6 +1882,7 @@ function installTaskboardHostBinding(cdp, supervisor, startupToken) {
 async function readInjectionStatus(cdp) {
   const status = await cdp.send("Runtime.evaluate", {
     expression: `({
+      sentinelPresent: Boolean(window.__codexTaskboardInjection__),
       version: window.__codexTaskboardInjection__?.version || null,
       sourceHash: window.__codexTaskboardInjection__?.sourceHash || null,
       scriptIdentifier: window[${JSON.stringify(injectionScriptIdentifierName)}] || null,
@@ -1873,6 +1895,49 @@ async function readInjectionStatus(cdp) {
     returnByValue: true,
   });
   return status.result.value;
+}
+
+async function reconcileInjectedTarget(connection, source, sourceHash) {
+  const currentStatus = await readInjectionStatus(connection);
+  return reconcileExistingInjection({
+    currentStatus,
+    source,
+    sourceHash,
+    refresh: async () => {
+      const evaluation = await connection.send("Runtime.evaluate", {
+        expression: `(() => {
+          const taskboard = window.__codexTaskboardInjection__;
+          if (typeof taskboard?.refresh !== "function") return false;
+          taskboard.refresh();
+          return true;
+        })()`,
+        returnByValue: true,
+      });
+      if (evaluation.result.value !== true) throw new Error("Taskboard injection refresh is unavailable");
+    },
+    readStatus: () => readInjectionStatus(connection),
+    reinstall: async (currentSource, status) => {
+      await reconcileInjectionRuntime({
+        currentStatus: status,
+        source: currentSource,
+        sourceHash,
+        removeRegisteredSource: (identifier) => connection.send(
+          "Page.removeScriptToEvaluateOnNewDocument",
+          { identifier },
+        ),
+        registerCurrentSource: (nextSource) => registerInjectionSource(connection, nextSource),
+        evaluateCurrentSource: (nextSource) => evaluateInjectionSource(connection, nextSource),
+        publishRegistration: (identifier) => publishInjectionScriptIdentifier(connection, identifier),
+        reopen: async () => {
+          const evaluation = await connection.send("Runtime.evaluate", {
+            expression: "window.__codexTaskboardInjection__?.open()",
+            returnByValue: true,
+          });
+          if (evaluation.result.value !== true) throw new Error("Taskboard injection could not reopen");
+        },
+      });
+    },
+  });
 }
 
 async function waitForInjectionStatus(cdp, shouldOpen, expectedSourceHash, timeoutMs) {
@@ -2143,7 +2208,10 @@ async function main() {
       if (!activePort) throw new Error("No debuggable Codex window found");
       port = activePort;
     }
-    console.log(JSON.stringify({ launcher: startResidentInjector(port, options.open), port }, null, 2));
+    console.log(JSON.stringify({
+      launcher: startResidentInjector(port, options.open, false, null, options.launch),
+      port,
+    }, null, 2));
     return;
   }
 
@@ -2522,6 +2590,7 @@ async function main() {
       if (stopping) break;
       for (const connection of injectedTargets.values()) {
         try {
+          await reconcileInjectedTarget(connection, source, sourceHash);
           await connection.hostBridge?.publishHeartbeat();
         } catch (_) {}
       }

@@ -166,16 +166,16 @@ npm run codex
 
 ### 安裝 Codex Plugin
 
-本專案也包含一個本機 Codex Plugin。Plugin 會在 Codex 工作階段開始時自動啟動既有的 Launcher；真正將原生 Taskboard 入口加入 Codex 左側選單的元件仍然是這個 Launcher。
+本專案也包含一個放在 repository 內的 Codex Plugin。Plugin 的 SessionStart hook 只會確保一個 resident Launcher 正在執行，不會自動打開任務面板；既有 Launcher / injector 會負責建立並修復 Codex 左側的「任務面板」入口。
 
-請從包含 `work` 資料夾的目錄註冊本機 marketplace，並安裝 Plugin：
+請從 repository 根目錄註冊 repository 內的本機 marketplace，並安裝 Plugin：
 
 ```powershell
-codex plugin marketplace add .\work
+codex plugin marketplace add .
 codex plugin add linear-taskboard@personal
 ```
 
-安裝後請開啟新的 Codex 工作階段。Plugin 的 hook 可能需要先經過檢閱與信任，才能啟動 Launcher。
+安裝後請開啟新的 Codex 工作階段。Plugin 的 hook 可能需要先經過檢閱與信任，才能確保 Launcher 已啟動。
 
 預設本機資料會放在：
 

@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   findResidentInjectorPids,
   handleHostBindingPayload,
+  reconcileExistingInjection,
   reconcileInjectionRuntime,
   restartResidentInjector,
 } from "../scripts/codex-injector-runtime.mjs";
@@ -200,6 +201,98 @@ test("attach is idempotent for the same source hash and does not open a closed p
     ["evaluate", "current-source"],
     ["publish", "current-registration"],
   ]);
+});
+
+test("healthy existing injections are not re-evaluated", async () => {
+  const calls = [];
+  const result = await reconcileExistingInjection({
+    currentStatus: {
+      sentinelPresent: true,
+      sourceHash: "current-hash",
+      entryMounted: true,
+    },
+    source: "current-source",
+    sourceHash: "current-hash",
+    refresh: async () => calls.push("refresh"),
+    readStatus: async () => calls.push("read"),
+    reinstall: async () => calls.push("reinstall"),
+  });
+
+  assert.deepEqual(result, {
+    repaired: false,
+    healthy: true,
+    status: {
+      sentinelPresent: true,
+      sourceHash: "current-hash",
+      entryMounted: true,
+    },
+  });
+  assert.deepEqual(calls, []);
+});
+
+test("missing entries try the user-script refresh before reinstalling", async () => {
+  const calls = [];
+  let status = {
+    sentinelPresent: true,
+    sourceHash: "current-hash",
+    entryMounted: false,
+  };
+  const result = await reconcileExistingInjection({
+    currentStatus: status,
+    source: "current-source",
+    sourceHash: "current-hash",
+    refresh: async () => {
+      calls.push("refresh");
+      status = { ...status, entryMounted: true };
+    },
+    readStatus: async () => {
+      calls.push("read");
+      return status;
+    },
+    reinstall: async () => calls.push("reinstall"),
+  });
+
+  assert.equal(result.healthy, true);
+  assert.equal(result.repaired, true);
+  assert.deepEqual(calls, ["refresh", "read"]);
+});
+
+test("failed refresh reinstalls the source and checks the repaired entry", async () => {
+  const calls = [];
+  let status = {
+    sentinelPresent: false,
+    sourceHash: null,
+    entryMounted: false,
+  };
+  const result = await reconcileExistingInjection({
+    currentStatus: status,
+    source: "current-source",
+    sourceHash: "current-hash",
+    refresh: async () => calls.push("refresh"),
+    readStatus: async () => {
+      calls.push("read");
+      return status;
+    },
+    reinstall: async (source) => {
+      calls.push(["reinstall", source]);
+      status = {
+        sentinelPresent: true,
+        sourceHash: "current-hash",
+        entryMounted: true,
+      };
+    },
+  });
+
+  assert.deepEqual(result, {
+    repaired: true,
+    healthy: true,
+    status: {
+      sentinelPresent: true,
+      sourceHash: "current-hash",
+      entryMounted: true,
+    },
+  });
+  assert.deepEqual(calls, ["refresh", "read", ["reinstall", "current-source"], "read"]);
 });
 
 test("resident discovery accepts this repository's absolute and relative launch forms only", () => {

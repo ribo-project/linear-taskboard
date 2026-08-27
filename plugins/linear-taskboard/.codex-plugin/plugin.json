@@ -1,0 +1,35 @@
+{
+  "name": "linear-taskboard",
+  "version": "0.1.1+codex.20260827095626",
+  "description": "\u5728 Codex \u4e2d\u4f7f\u7528 Linear Taskboard\uff0c\u4e26\u5c07\u4efb\u52d9\u9762\u677f\u5165\u53e3\u653e\u5230\u5de6\u5074\u9078\u55ae\u3002",
+  "author": {
+    "name": "ribo-project",
+    "url": "https://github.com/ribo-project"
+  },
+  "homepage": "https://github.com/ribo-project/linear-taskboard",
+  "repository": "https://github.com/ribo-project/linear-taskboard",
+  "license": "MIT",
+  "keywords": [
+    "Linear",
+    "Taskboard",
+    "Codex",
+    "\u4efb\u52d9\u9762\u677f"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Linear Taskboard",
+    "shortDescription": "\u5728 Codex \u5de6\u5074\u4f7f\u7528 Linear \u4efb\u52d9\u9762\u677f",
+    "longDescription": "\u5b89\u88dd\u5f8c\u7531 Plugin \u81ea\u52d5\u78ba\u4fdd\u672c\u6a5f Taskboard Launcher \u5e38\u99d0\uff0c\u5c07 Linear Taskboard \u5165\u53e3\u52a0\u5165 Codex \u5de6\u5074\u9078\u55ae\u3002",
+    "developerName": "ribo-project",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "\u958b\u555f Linear Taskboard \u4e26\u67e5\u770b\u53ef\u57f7\u884c\u4efb\u52d9",
+      "\u540c\u6b65 Linear \u5c08\u6848\u8207 Issue",
+      "\u6aa2\u67e5\u76ee\u524d\u4efb\u52d9\u7684 blocker \u8207 Codex \u7d81\u5b9a\u72c0\u614b"
+    ],
+    "brandColor": "#5E6AD2"
+  }
+}

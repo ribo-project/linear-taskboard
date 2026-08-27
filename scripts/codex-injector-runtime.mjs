@@ -166,6 +166,38 @@ export async function reconcileInjectionRuntime({
   return { replaced, scriptIdentifier, shouldRemainOpen };
 }
 
+export async function reconcileExistingInjection({
+  currentStatus,
+  source,
+  sourceHash,
+  refresh,
+  readStatus,
+  reinstall,
+}) {
+  const isHealthy = (status) => (
+    status?.sentinelPresent === true
+    && status.sourceHash === sourceHash
+    && status.entryMounted === true
+  );
+
+  if (isHealthy(currentStatus)) {
+    return { repaired: false, healthy: true, status: currentStatus };
+  }
+
+  let status = currentStatus;
+  if (status?.entryMounted !== true && typeof refresh === "function") {
+    try {
+      await refresh();
+      status = await readStatus();
+      if (isHealthy(status)) return { repaired: true, healthy: true, status };
+    } catch {}
+  }
+
+  await reinstall(source, status);
+  status = await readStatus();
+  return { repaired: true, healthy: isHealthy(status), status };
+}
+
 export function findResidentInjectorPids({
   processList,
   currentPid,

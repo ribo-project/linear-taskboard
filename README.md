@@ -125,16 +125,16 @@ Keep this launcher process running while using the injected Taskboard. This is t
 
 ### Codex Plugin installation
 
-The repository also includes a local Codex Plugin. The Plugin starts the existing launcher automatically at the beginning of a Codex session; the launcher is still the component that adds the native Taskboard entry to the Codex sidebar.
+The repository also includes a local Codex Plugin. Its SessionStart hook ensures that one resident launcher is running; it does not open the Taskboard automatically. The existing launcher/injector adds and repairs the Taskboard entry in the Codex sidebar.
 
-From the directory containing the `work` folder, register the local marketplace and install the Plugin:
+From the repository root, register the repository-local marketplace and install the Plugin:
 
 ```powershell
-codex plugin marketplace add .\work
+codex plugin marketplace add .
 codex plugin add linear-taskboard@personal
 ```
 
-Start a new Codex session after installation. The Plugin hook may require review and trust before it can start the launcher.
+Start a new Codex session after installation. The Plugin hook may require review and trust before it can ensure the launcher.
 
 By default, local data is stored under `.data/`, including:
 
