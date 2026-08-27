@@ -5,7 +5,7 @@ function hasCodexReadyLabel(task) {
     && task.labels.some((label) => String(label).trim().toLowerCase() === CODEX_READY_LABEL);
 }
 
-export function linearClaimEligibility(task) {
+export function linearClaimEligibility(task, { allowExistingBinding = false } = {}) {
   const reasons = [];
 
   if (!task || task.source !== "linear") reasons.push("NOT_LINEAR");
@@ -20,7 +20,9 @@ export function linearClaimEligibility(task) {
     reasons.push("BLOCKED_BY_DEPENDENCY");
   }
 
-  if (task?.threadBinding || task?.threadId) reasons.push("ALREADY_BOUND");
+  if (!allowExistingBinding && (task?.threadBinding || task?.threadId)) {
+    reasons.push("ALREADY_BOUND");
+  }
 
   return {
     eligible: reasons.length === 0,
@@ -28,8 +30,8 @@ export function linearClaimEligibility(task) {
   };
 }
 
-export function assertLinearClaimable(task) {
-  const eligibility = linearClaimEligibility(task);
+export function assertLinearClaimable(task, options) {
+  const eligibility = linearClaimEligibility(task, options);
   if (eligibility.eligible) return eligibility;
 
   const error = new Error(`Linear issue is not claimable: ${eligibility.reasons.join(", ")}`);
