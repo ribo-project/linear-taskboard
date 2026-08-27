@@ -121,6 +121,15 @@ test("Linear local connection routes configure, sync, and never expose the API k
     assert.equal(tasks.tasks[0].source, "linear");
     assert.equal(tasks.tasks[0].externalKey, "RIB-1");
 
+    const localMutation = await fetch(`${baseUrl}/api/tasks/${encodeURIComponent(tasks.tasks[0].id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    assert.equal(localMutation.status, 409);
+    const localMutationBody = await localMutation.json();
+    assert.equal(localMutationBody.error.code, "LINEAR_READ_ONLY");
+
     linear.renameIssue("Synced title");
     const syncResponse = await fetch(`${baseUrl}/api/local/linear-connection/sync`, {
       method: "POST",
