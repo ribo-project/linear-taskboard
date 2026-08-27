@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createLinearIntegration } from "../server/linear-integration.mjs";
+import {
+  CODEX_READY_LABEL,
+  createLinearIntegration,
+} from "../server/linear-integration.mjs";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -28,7 +31,7 @@ function createMemoryConfigStore(initial = null) {
   };
 }
 
-function createLinearFetch() {
+function createLinearFetch({ codexReadyLabel = true } = {}) {
   const mutations = [];
   const fetch = async (_url, init) => {
     const body = JSON.parse(init.body);
@@ -66,10 +69,14 @@ function createLinearFetch() {
                   state: { id: "todo", name: "Todo", type: "unstarted", position: 1 },
                   team: { id: "team-1", key: "RIB", name: "RIB" },
                   project: { id: "project-1", name: "Project 1" },
-                  labels: { nodes: [{ id: "label-1", name: "codex-ready" }] },
+                  labels: { nodes: codexReadyLabel ? [{ id: "label-ready", name: "codex-ready" }] : [] },
                   assignee: { id: "viewer-1", displayName: "Viewer", avatarUrl: null },
                   creator: { id: "viewer-1", displayName: "Viewer", avatarUrl: null },
                   parent: null,
+                  inverseRelations: {
+                    nodes: [],
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                  },
                 },
                 {
                   id: "issue-2",
@@ -88,6 +95,10 @@ function createLinearFetch() {
                   assignee: { id: "viewer-1", displayName: "Viewer", avatarUrl: null },
                   creator: { id: "viewer-1", displayName: "Viewer", avatarUrl: null },
                   parent: null,
+                  inverseRelations: {
+                    nodes: [],
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                  },
                 },
               ],
               pageInfo: { hasNextPage: false, endCursor: null },
@@ -106,6 +117,36 @@ function createLinearFetch() {
                 { id: "state-progress", name: "In Progress", type: "started", position: 2 },
                 { id: "state-review", name: "In Review", type: "started", position: 3 },
               ],
+            },
+          },
+        },
+      });
+    }
+
+    if (body.query.includes("LinearTaskboardIssueLabels")) {
+      return jsonResponse({
+        data: {
+          issueLabels: {
+            nodes: codexReadyLabel
+              ? [{ id: "label-ready", name: "CoDeX-ReAdY", color: "#5E6AD2", description: "ready" }]
+              : [{ id: "label-bug", name: "bug", color: "#ff0000", description: null }],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      });
+    }
+
+    if (body.query.includes("LinearTaskboardCreateIssueLabel")) {
+      mutations.push({ kind: "label-create", variables: body.variables });
+      return jsonResponse({
+        data: {
+          issueLabelCreate: {
+            success: true,
+            issueLabel: {
+              id: "label-created",
+              name: body.variables.input.name,
+              color: body.variables.input.color,
+              description: body.variables.input.description,
             },
           },
         },
@@ -213,4 +254,70 @@ test("priority and comment helpers write through to Linear", async () => {
   assert.deepEqual(mutations[1], {
     input: { issueId: "issue-1", body: "Implementation complete" },
   });
+});
+
+test("setCodexReady reuses an existing label case-insensitively without replacing other labels", async () => {
+  const configStore = createMemoryConfigStore({
+    version: 1,
+    apiKey: "test-linear-key",
+    teamIds: [],
+    projectIds: [],
+    assignedToMeOnly: true,
+  });
+  const { fetch, mutations } = createLinearFetch({ codexReadyLabel: true });
+  const integration = createLinearIntegration({ configStore, fetch });
+
+  const result = await integration.setCodexReady({ issueId: "issue-1" }, true);
+
+  assert.equal(result.enabled, true);
+  assert.equal(result.label.id, "label-ready");
+  assert.deepEqual(mutations, [{
+    issueId: "issue-1",
+    input: { addedLabelIds: ["label-ready"] },
+  }]);
+});
+
+test("setCodexReady creates the workspace label only on explicit enable", async () => {
+  const configStore = createMemoryConfigStore({
+    version: 1,
+    apiKey: "test-linear-key",
+    teamIds: [],
+    projectIds: [],
+    assignedToMeOnly: true,
+  });
+  const { fetch, mutations } = createLinearFetch({ codexReadyLabel: false });
+  const integration = createLinearIntegration({ configStore, fetch });
+
+  const disabled = await integration.setCodexReady({ issueId: "issue-1" }, false);
+  assert.deepEqual(disabled, { changed: false, enabled: false, label: null });
+  assert.deepEqual(mutations, []);
+
+  const enabled = await integration.setCodexReady({ issueId: "issue-1" }, true);
+  assert.equal(enabled.enabled, true);
+  assert.equal(enabled.label.id, "label-created");
+  assert.equal(mutations[0].kind, "label-create");
+  assert.equal(mutations[0].variables.input.name, CODEX_READY_LABEL);
+  assert.equal(Object.hasOwn(mutations[0].variables.input, "teamId"), false);
+  assert.deepEqual(mutations[1], {
+    issueId: "issue-1",
+    input: { addedLabelIds: ["label-created"] },
+  });
+});
+
+test("setCodexReady removes only the readiness label", async () => {
+  const configStore = createMemoryConfigStore({
+    version: 1,
+    apiKey: "test-linear-key",
+    teamIds: [],
+    projectIds: [],
+    assignedToMeOnly: true,
+  });
+  const { fetch, mutations } = createLinearFetch({ codexReadyLabel: true });
+  const integration = createLinearIntegration({ configStore, fetch });
+
+  await integration.setCodexReady({ issueId: "issue-1" }, false);
+  assert.deepEqual(mutations, [{
+    issueId: "issue-1",
+    input: { removedLabelIds: ["label-ready"] },
+  }]);
 });
