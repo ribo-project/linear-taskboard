@@ -184,6 +184,11 @@ export function createLinearIntegration({
       return syncWithConfig(config, { archiveMissing: false });
     },
 
+    async listComments(nativeRef) {
+      if (!nativeRef?.issueId) throw new Error("Linear issue native reference is incomplete");
+      return withClient((client) => client.listComments(nativeRef.issueId));
+    },
+
     async moveIssue(nativeRef, targetStatus) {
       if (!nativeRef?.issueId || !nativeRef?.teamId) {
         throw new Error("Linear issue native reference is incomplete");
