@@ -185,7 +185,7 @@ function parseArgs(argv) {
     else throw new Error(`Unknown option: ${arg}`);
   }
 
-  if (process.platform !== "darwin" && options.launch) options.cdpPipe = true;
+  if (process.platform === "linux" && options.launch) options.cdpPipe = true;
 
   if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535) {
     throw new Error("--port must be an integer between 1 and 65535");
@@ -353,6 +353,28 @@ function codexExecutablePath(appPath) {
 }
 
 function codexAppProcesses(appPath) {
+  if (process.platform === "win32") {
+    const executableName = path.basename(appPath).replaceAll("'", "''");
+    const processes = spawnSync(
+      windowsPowerShellPath(),
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `$name = '${executableName}'; Get-CimInstance Win32_Process -Filter \"Name = '$name'\" | ForEach-Object { [pscustomobject]@{ pid = $_.ProcessId; command = [string]$_.CommandLine } } | ConvertTo-Json -Compress`,
+      ],
+      { encoding: "utf8", windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+    );
+    if (processes.status !== 0 || !processes.stdout.trim()) return [];
+    try {
+      const records = JSON.parse(processes.stdout);
+      return (Array.isArray(records) ? records : [records])
+        .filter((record) => Number.isInteger(record.pid) && record.command)
+        .map((record) => ({ pid: record.pid, command: record.command }));
+    } catch {
+      return [];
+    }
+  }
   const processes = spawnSync("/bin/ps", ["-ww", "-axo", "pid=,command="], {
     encoding: "utf8",
     env: withoutTaskboardLauncherEnvironment(process.env),
@@ -399,6 +421,19 @@ function managedCodexUsesPort(record, port) {
 }
 
 function isManagedCodexRunning(record) {
+  if (process.platform === "win32") {
+    const result = spawnSync(
+      windowsPowerShellPath(),
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `$process = Get-CimInstance Win32_Process -Filter \"ProcessId = ${record.pid}\"; if ($process) { [Console]::Out.Write([string]$process.CommandLine) }`,
+      ],
+      { encoding: "utf8", windowsHide: true, maxBuffer: 256 * 1024 },
+    );
+    return result.status === 0 && result.stdout.trimEnd() === record.command;
+  }
   const result = spawnSync(
     "/bin/ps",
     ["-ww", "-p", String(record.pid), "-o", "command="],
@@ -419,6 +454,29 @@ async function launchCodexWithLaunchServices(appPath, port, shouldStop = () => f
     throw new Error(`Codex CDP port ${port} is already in use`);
   }
   if (shouldStop()) throw new Error("Managed Codex launch stopped");
+
+  if (process.platform === "win32") {
+    const child = spawn(codexExecutablePath(appPath), [
+      "--remote-debugging-address=127.0.0.1",
+      `--remote-debugging-port=${port}`,
+      `--remote-allow-origins=http://127.0.0.1:${port}`,
+    ], {
+      cwd: path.dirname(appPath),
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.unref();
+
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      const launched = codexAppProcesses(appPath)
+        .find((record) => managedCodexUsesPort(record, port));
+      if (launched) return launched;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error("Windows did not start the main Codex process with the requested CDP port");
+  }
 
   const launcher = spawn(
     "/usr/bin/open",
@@ -2402,8 +2460,13 @@ async function main() {
     );
     pendingCodexLaunch = launchPromise;
     try {
-      managedCodex = await launchPromise;
-      codexAppPid = managedCodex.pid;
+      const launched = await launchPromise;
+      if (process.platform === "win32") {
+        codexAppPid = launched.pid;
+      } else {
+        managedCodex = launched;
+        codexAppPid = launched.pid;
+      }
     } catch (error) {
       if (!stopping) throw error;
     } finally {

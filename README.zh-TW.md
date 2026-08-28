@@ -155,14 +155,22 @@ npm start
 
 ### B. 讓 Taskboard 出現在 Codex Desktop 左側
 
-這會執行 Codex Launcher / injector，啟動或重用本機 Taskboard 服務，並將 Taskboard 入口注入 Codex Desktop 左側選單。
+Windows 請先建立「主 Codex + CDP」工作列捷徑，再從這個捷徑開啟 Codex。這樣會保留原本的 Codex 對話、專案與設定，Plugin 才能將 Taskboard 入口注入同一個 Codex 視窗。
+
+```powershell
+npm run codex:shortcut
+```
+
+之後請從工作列的 `Codex.lnk` 開啟 Codex。它會帶入 `127.0.0.1:9231` 的 CDP 參數；不需要再執行 `npm run codex`。
+
+如果要直接執行 Launcher / injector，仍可使用：
 
 ```powershell
 $env:CODEX_TASKBOARD_HOST="127.0.0.1"
 npm run codex
 ```
 
-使用注入後的 Taskboard 時，請保持這個 Launcher 程序執行中。這才是 Codex Desktop 的安裝與注入流程；只執行 `npm start` 不會產生左側選單入口。
+只執行 `npm start` 不會產生左側選單入口。Plugin 的 SessionStart hook 會自動確保 resident Launcher 執行中，而且不會自動打開任務面板。
 
 ### 安裝 Codex Plugin
 

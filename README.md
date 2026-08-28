@@ -114,14 +114,22 @@ Open <http://127.0.0.1:47823> in a browser.
 
 ### B. Show Taskboard in the Codex Desktop sidebar
 
-This runs the Codex launcher/injector, starts or reuses the local Taskboard service, and injects the Taskboard entry into Codex Desktop.
+On Windows, first create the “main Codex + CDP” taskbar shortcut and open Codex from that shortcut. This keeps the existing Codex conversations, projects, and settings in the same Codex window for injection.
+
+```powershell
+npm run codex:shortcut
+```
+
+Then open Codex from the `Codex.lnk` taskbar shortcut. It supplies CDP on `127.0.0.1:9231`; you do not need to run `npm run codex`.
+
+To run the launcher/injector directly, use:
 
 ```powershell
 $env:CODEX_TASKBOARD_HOST="127.0.0.1"
 npm run codex
 ```
 
-Keep this launcher process running while using the injected Taskboard. This is the Codex Desktop installation path; `npm start` alone does not add a sidebar entry.
+`npm start` alone does not add a sidebar entry. The Plugin SessionStart hook ensures the resident launcher is running and does not automatically open the Taskboard panel.
 
 ### Codex Plugin installation
 
