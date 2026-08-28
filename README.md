@@ -1,5 +1,10 @@
 [English](README.md) | [繁體中文](README.zh-TW.md)
 
+> [!CAUTION]
+> **DEPRECATED / ABANDONED** — This repository is no longer maintained and should not be used for new work. The Linear/Codex integration approach proved too fragile in practice, especially around Codex Desktop sidebar injection/plugin lifecycle behavior. The repository is kept only for historical reference.
+>
+> **已棄用 / 停止維護** — 本專案因實際整合問題過多，尤其是 Codex Desktop 左側選單注入與 Plugin 生命週期過於脆弱，已停止後續開發。此 repository 僅保留作為歷史參考，不建議繼續使用或部署。
+
 # Linear Taskboard for Codex
 
 A Codex-native work surface backed by **Linear**. This project is a fork of the upstream Codex Taskboard and keeps its embedded Codex UI, launcher, Skill, thread binding, worktree support, and project automation while making Linear the authoritative source for project and issue data.
