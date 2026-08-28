@@ -14,10 +14,14 @@ $codexExecutable = Join-Path -Path $package.InstallLocation -ChildPath "app\Chat
 if (-not (Test-Path -LiteralPath $codexExecutable)) {
   throw "Codex executable was not found: $codexExecutable"
 }
-$nodeExecutable = (Get-Command node.exe -ErrorAction Stop).Source
 $injectorScript = Join-Path $RepositoryRoot "scripts\codex-injector.mjs"
 if (-not (Test-Path -LiteralPath $injectorScript)) {
   throw "Codex injector was not found: $injectorScript"
+}
+$powerShellExecutable = (Get-Command pwsh.exe -ErrorAction Stop).Source
+$launcherWrapper = Join-Path $RepositoryRoot "scripts\start-codex-taskboard.ps1"
+if (-not (Test-Path -LiteralPath $launcherWrapper)) {
+  throw "Codex launcher wrapper was not found: $launcherWrapper"
 }
 
 $desktopDirectory = [Environment]::GetFolderPath("Desktop")
@@ -31,11 +35,12 @@ if (Test-Path -LiteralPath $shortcutPath) {
 
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $nodeExecutable
-$shortcut.Arguments = "`"$injectorScript`" --launch --watch --port $CdpPort"
+$shortcut.TargetPath = $powerShellExecutable
+$shortcut.Arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcherWrapper`" -RepositoryRoot `"$RepositoryRoot`" -CdpPort $CdpPort"
 $shortcut.WorkingDirectory = $RepositoryRoot
 $shortcut.IconLocation = "$codexExecutable,0"
 $shortcut.Description = "Codex Desktop (main profile + Taskboard launcher)"
+$shortcut.WindowStyle = 0
 $shortcut.Save()
 
 $appsFolder = (New-Object -ComObject Shell.Application).Namespace("shell:AppsFolder")
@@ -66,7 +71,7 @@ if (Test-Path -LiteralPath $legacyTaskbarShortcut) {
 if ($pinned) {
   Write-Output "Created and pinned taskbar shortcut from: $shortcutPath"
 } else {
-  Write-Output "Created Codex launcher shortcut on the desktop: $shortcutPath"
+Write-Output "Created Codex launcher shortcut on the desktop: $shortcutPath"
 }
 Write-Output "Target: $codexExecutable"
-Write-Output "Wrapper: $nodeExecutable $($shortcut.Arguments)"
+Write-Output "Wrapper: $powerShellExecutable $($shortcut.Arguments)"

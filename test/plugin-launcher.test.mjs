@@ -5,6 +5,7 @@ import { test } from "node:test";
 const hook = await readFile(new URL("../plugins/linear-taskboard/hooks/hooks.json", import.meta.url), "utf8");
 const launcher = await readFile(new URL("../plugins/linear-taskboard/scripts/ensure-plugin-launcher.mjs", import.meta.url), "utf8");
 const shortcutInstaller = await readFile(new URL("../scripts/install-codex-cdp-shortcut.ps1", import.meta.url), "utf8");
+const shortcutWrapper = await readFile(new URL("../scripts/start-codex-taskboard.ps1", import.meta.url), "utf8");
 const injector = await readFile(new URL("../scripts/codex-injector.mjs", import.meta.url), "utf8");
 const manifest = JSON.parse(await readFile(new URL("../plugins/linear-taskboard/.codex-plugin/plugin.json", import.meta.url), "utf8"));
 
@@ -24,9 +25,15 @@ test("the packaged Plugin ensures a resident launcher without opening Taskboard"
 
 test("the Windows shortcut targets the main Codex profile with loopback CDP", () => {
   assert.match(shortcutInstaller, /Get-AppxPackage -Name "OpenAI\.Codex"/);
-  assert.match(shortcutInstaller, /Get-Command node\.exe/);
-  assert.match(shortcutInstaller, /codex-injector\.mjs/);
-  assert.match(shortcutInstaller, /--launch --watch --port \$CdpPort/);
+  assert.match(shortcutInstaller, /Get-Command pwsh\.exe/);
+  assert.match(shortcutInstaller, /start-codex-taskboard\.ps1/);
+  assert.match(shortcutInstaller, /-WindowStyle Hidden/);
+  assert.match(shortcutInstaller, /WindowStyle = 0/);
+  assert.match(shortcutWrapper, /Get-Command node\.exe/);
+  assert.match(shortcutWrapper, /codex-injector\.mjs/);
+  assert.match(shortcutWrapper, /--launch/);
+  assert.match(shortcutWrapper, /--watch/);
+  assert.match(shortcutWrapper, /-WindowStyle Hidden/);
   assert.match(shortcutInstaller, /Codex\.lnk/);
   assert.match(shortcutInstaller, /User Pinned.*TaskBar/);
 });
@@ -35,6 +42,7 @@ test("Windows launcher commands use PowerShell 7", () => {
   assert.match(injector, /where\.exe.*pwsh\.exe/s);
   assert.doesNotMatch(injector, /WindowsPowerShell/);
   assert.doesNotMatch(shortcutInstaller, /powershell\.exe/i);
+  assert.doesNotMatch(shortcutWrapper, /powershell\.exe/i);
 });
 
 test("Windows launch attaches to the main Codex CDP before starting a process", () => {
