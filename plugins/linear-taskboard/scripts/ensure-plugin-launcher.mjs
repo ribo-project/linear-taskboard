@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -68,24 +68,27 @@ async function main() {
 
   try {
     if (await launcherIsHealthy(repositoryRoot)) return;
-    const result = spawnSync(
+    const child = spawn(
       process.execPath,
       [
-      path.join(repositoryRoot, repositoryMarker),
-      "--daemon",
-      "--launch",
-      "--port",
+        path.join(repositoryRoot, repositoryMarker),
+        "--daemon",
+        "--launch",
+        "--port",
         injectorPort,
       ],
       {
         cwd: repositoryRoot,
         env: { ...process.env, CODEX_TASKBOARD_HOST: "127.0.0.1" },
         stdio: "ignore",
+        detached: true,
         windowsHide: process.platform === "win32",
       },
     );
-    if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error("Taskboard Launcher ensure 失敗");
+    child.once("error", (error) => {
+      console.error(`Taskboard Launcher ensure 啟動失敗：${error.message}`);
+    });
+    child.unref();
   } finally {
     await lock.close();
     try {

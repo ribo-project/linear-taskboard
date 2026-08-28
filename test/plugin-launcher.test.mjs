@@ -16,7 +16,9 @@ test("the packaged Plugin ensures a resident launcher without opening Taskboard"
   assert.match(launcher, /--daemon/);
   assert.match(launcher, /--launch/);
   assert.match(launcher, /--port/);
-  assert.match(launcher, /spawnSync/);
+  assert.match(launcher, /spawn\(/);
+  assert.match(launcher, /detached: true/);
+  assert.match(launcher, /child\.unref\(\)/);
   assert.match(launcher, /launcher-ensure\.lock/);
 });
 

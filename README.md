@@ -114,13 +114,13 @@ Open <http://127.0.0.1:47823> in a browser.
 
 ### B. Show Taskboard in the Codex Desktop sidebar
 
-On Windows, first create the “main Codex + CDP” taskbar shortcut and open Codex from that shortcut. This keeps the existing Codex conversations, projects, and settings in the same Codex window for injection.
+On Windows, first create the “main Codex + CDP” shortcut with PowerShell 7. This keeps the existing Codex conversations, projects, and settings in the same Codex window for injection.
 
 ```powershell
 npm run codex:shortcut
 ```
 
-Then open Codex from the `Codex.lnk` taskbar shortcut. It supplies CDP on `127.0.0.1:9231`; you do not need to run `npm run codex`.
+The command creates `Codex.lnk` on the Desktop with CDP on `127.0.0.1:9231`. Drag that shortcut to the taskbar once, then open Codex from the new taskbar icon; you do not need to run `npm run codex`. Windows 11 may not expose a programmatic taskbar-pin action, so the one-time drag is expected.
 
 To run the launcher/injector directly, use:
 

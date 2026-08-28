@@ -155,13 +155,13 @@ npm start
 
 ### B. 讓 Taskboard 出現在 Codex Desktop 左側
 
-Windows 請先建立「主 Codex + CDP」工作列捷徑，再從這個捷徑開啟 Codex。這樣會保留原本的 Codex 對話、專案與設定，Plugin 才能將 Taskboard 入口注入同一個 Codex 視窗。
+Windows 請先使用 PowerShell 7 建立「主 Codex + CDP」捷徑。這樣會保留原本的 Codex 對話、專案與設定，Plugin 才能將 Taskboard 入口注入同一個 Codex 視窗。
 
 ```powershell
 npm run codex:shortcut
 ```
 
-之後請從工作列的 `Codex.lnk` 開啟 Codex。它會帶入 `127.0.0.1:9231` 的 CDP 參數；不需要再執行 `npm run codex`。
+指令會在桌面建立帶有 `127.0.0.1:9231` CDP 參數的 `Codex.lnk`。請將這個捷徑拖曳到工作列一次，再從新的工作列圖示開啟 Codex；不需要再執行 `npm run codex`。Windows 11 可能不提供程式自動釘選工作列的功能，因此第一次需要手動拖曳。
 
 如果要直接執行 Launcher / injector，仍可使用：
 
