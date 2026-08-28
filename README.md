@@ -120,7 +120,7 @@ On Windows, first create the “main Codex + CDP” shortcut with PowerShell 7. 
 npm run codex:shortcut
 ```
 
-The command creates `Codex.lnk` on the Desktop with CDP on `127.0.0.1:9231`. Drag that shortcut to the taskbar once, then open Codex from the new taskbar icon; you do not need to run `npm run codex`. Windows 11 may not expose a programmatic taskbar-pin action, so the one-time drag is expected.
+The command creates `Codex.lnk` on the Desktop. It starts the existing launcher/injector, which opens the main Codex profile with CDP on `127.0.0.1:9231` and starts Taskboard. Drag that shortcut to the taskbar once, then open Codex from the new taskbar icon; you do not need to run `npm run codex`. Windows 11 may not expose a programmatic taskbar-pin action, so the one-time drag is expected.
 
 To run the launcher/injector directly, use:
 

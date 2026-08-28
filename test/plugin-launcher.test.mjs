@@ -24,7 +24,9 @@ test("the packaged Plugin ensures a resident launcher without opening Taskboard"
 
 test("the Windows shortcut targets the main Codex profile with loopback CDP", () => {
   assert.match(shortcutInstaller, /Get-AppxPackage -Name "OpenAI\.Codex"/);
-  assert.match(shortcutInstaller, /--remote-debugging-port=\$CdpPort/);
+  assert.match(shortcutInstaller, /Get-Command node\.exe/);
+  assert.match(shortcutInstaller, /codex-injector\.mjs/);
+  assert.match(shortcutInstaller, /--launch --watch --port \$CdpPort/);
   assert.match(shortcutInstaller, /Codex\.lnk/);
   assert.match(shortcutInstaller, /User Pinned.*TaskBar/);
 });
@@ -40,4 +42,9 @@ test("Windows launch attaches to the main Codex CDP before starting a process", 
   assert.match(injector, /Get-CimInstance Win32_Process/);
   assert.match(injector, /--remote-debugging-address=127\.0\.0\.1/);
   assert.match(injector, /Windows did not start the main Codex process with the requested CDP port/);
+});
+
+test("the main launcher shortcut reuses an existing resident injector", () => {
+  assert.match(injector, /residentInjectorPids\(options\.port\)/);
+  assert.match(injector, /reusedResidentPid/);
 });

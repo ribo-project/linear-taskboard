@@ -161,7 +161,7 @@ Windows 請先使用 PowerShell 7 建立「主 Codex + CDP」捷徑。這樣會�
 npm run codex:shortcut
 ```
 
-指令會在桌面建立帶有 `127.0.0.1:9231` CDP 參數的 `Codex.lnk`。請將這個捷徑拖曳到工作列一次，再從新的工作列圖示開啟 Codex；不需要再執行 `npm run codex`。Windows 11 可能不提供程式自動釘選工作列的功能，因此第一次需要手動拖曳。
+指令會在桌面建立 `Codex.lnk`。它會啟動既有的 Launcher / injector，由 injector 以主 Codex 設定檔啟動 Codex、帶入 `127.0.0.1:9231` CDP，並啟動 Taskboard。請將這個捷徑拖曳到工作列一次，再從新的工作列圖示開啟 Codex；不需要再執行 `npm run codex`。Windows 11 可能不提供程式自動釘選工作列的功能，因此第一次需要手動拖曳。
 
 如果要直接執行 Launcher / injector，仍可使用：
 

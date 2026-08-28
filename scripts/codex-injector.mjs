@@ -2252,6 +2252,13 @@ async function resolveRunnableCodexExecutable(appPath) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  if (!options.daemon && options.launch && options.watch) {
+    const existingPid = residentInjectorPids(options.port).find((pid) => pid !== process.pid);
+    if (existingPid) {
+      console.log(JSON.stringify({ reusedResidentPid: existingPid }));
+      return;
+    }
+  }
   options.startupToken ??= taskboardInstanceToken;
   process.env.CODEX_EXECUTABLE = await resolveRunnableCodexExecutable(options.appPath);
   const cdpVersionUrl = `http://127.0.0.1:${options.port}/json/version`;

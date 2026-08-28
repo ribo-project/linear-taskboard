@@ -14,6 +14,11 @@ $codexExecutable = Join-Path -Path $package.InstallLocation -ChildPath "app\Chat
 if (-not (Test-Path -LiteralPath $codexExecutable)) {
   throw "Codex executable was not found: $codexExecutable"
 }
+$nodeExecutable = (Get-Command node.exe -ErrorAction Stop).Source
+$injectorScript = Join-Path $RepositoryRoot "scripts\codex-injector.mjs"
+if (-not (Test-Path -LiteralPath $injectorScript)) {
+  throw "Codex injector was not found: $injectorScript"
+}
 
 $desktopDirectory = [Environment]::GetFolderPath("Desktop")
 $taskbarDirectory = Join-Path $env:APPDATA "Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
@@ -26,11 +31,11 @@ if (Test-Path -LiteralPath $shortcutPath) {
 
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $codexExecutable
-$shortcut.Arguments = "--remote-debugging-address=127.0.0.1 --remote-debugging-port=$CdpPort --remote-allow-origins=http://127.0.0.1:$CdpPort"
-$shortcut.WorkingDirectory = Split-Path -Parent $codexExecutable
+$shortcut.TargetPath = $nodeExecutable
+$shortcut.Arguments = "`"$injectorScript`" --launch --watch --port $CdpPort"
+$shortcut.WorkingDirectory = $RepositoryRoot
 $shortcut.IconLocation = "$codexExecutable,0"
-$shortcut.Description = "Codex Desktop (main profile + Taskboard CDP)"
+$shortcut.Description = "Codex Desktop (main profile + Taskboard launcher)"
 $shortcut.Save()
 
 $appsFolder = (New-Object -ComObject Shell.Application).Namespace("shell:AppsFolder")
@@ -61,7 +66,7 @@ if (Test-Path -LiteralPath $legacyTaskbarShortcut) {
 if ($pinned) {
   Write-Output "Created and pinned taskbar shortcut from: $shortcutPath"
 } else {
-  Write-Output "Created CDP shortcut on the desktop: $shortcutPath"
+  Write-Output "Created Codex launcher shortcut on the desktop: $shortcutPath"
 }
 Write-Output "Target: $codexExecutable"
-Write-Output "Arguments: $($shortcut.Arguments)"
+Write-Output "Wrapper: $nodeExecutable $($shortcut.Arguments)"
