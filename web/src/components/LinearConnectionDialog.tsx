@@ -45,6 +45,7 @@ export function LinearConnectionDialog({
   const [teamIdsText, setTeamIdsText] = useState(connection?.teamIds.join(", ") ?? "");
   const [projectIdsText, setProjectIdsText] = useState(connection?.projectIds.join(", ") ?? "");
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [apiKeyOpen, setApiKeyOpen] = useState(connection?.authType === "api-key");
 
   useEffect(() => {
     setApiKey("");
@@ -52,6 +53,7 @@ export function LinearConnectionDialog({
     setTeamIdsText(connection?.teamIds.join(", ") ?? "");
     setProjectIdsText(connection?.projectIds.join(", ") ?? "");
     setAdvancedOpen(Boolean(connection?.teamIds.length || connection?.projectIds.length));
+    setApiKeyOpen(connection?.authType === "api-key");
   }, [connection]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -122,27 +124,43 @@ export function LinearConnectionDialog({
           </p>
         )}
 
-        <label>
-          <span>{text("Personal API Key", "Personal API key")}</span>
-          <input
-            autoFocus
-            required
-            type="password"
-            autoComplete="off"
-            maxLength={4096}
-            placeholder={connection?.configured
-              ? text("重新儲存設定時請再次輸入", "Enter again when saving settings")
-              : "lin_api_…"}
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-          />
-        </label>
-        <p className="jira-http-warning">
-          {text(
-            "API Key 只會儲存在這台裝置的 Taskboard 設定檔，不會回傳到瀏覽器狀態或寫進任務資料。",
-            "The API key is stored only in this device's Taskboard config and is never returned in connection status or task data.",
-          )}
-        </p>
+        {connection?.oauthClientConfigured && (
+          <button
+            className="button secondary"
+            type="button"
+            disabled={busy}
+            onClick={() => setApiKeyOpen((value) => !value)}
+          >
+            {apiKeyOpen
+              ? text("隱藏 API Key 設定", "Hide API key setup")
+              : text("使用 API Key（進階）", "Use API key (advanced)")}
+          </button>
+        )}
+        {(apiKeyOpen || !connection?.oauthClientConfigured) && (
+          <>
+            <label>
+              <span>{text("Personal API Key", "Personal API key")}</span>
+              <input
+                autoFocus={apiKeyOpen}
+                required
+                type="password"
+                autoComplete="off"
+                maxLength={4096}
+                placeholder={connection?.configured
+                  ? text("重新儲存設定時請再次輸入", "Enter again when saving settings")
+                  : "lin_api_…"}
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+              />
+            </label>
+            <p className="jira-http-warning">
+              {text(
+                "API Key 只會儲存在這台裝置的 Taskboard 設定檔，不會回傳到瀏覽器狀態或寫進任務資料。",
+                "The API key is stored only in this device's Taskboard config and is never returned in connection status or task data.",
+              )}
+            </p>
+          </>
+        )}
 
         <label className="linear-connection-checkbox">
           <input
@@ -205,7 +223,7 @@ export function LinearConnectionDialog({
           <button className="button secondary" type="button" disabled={busy} onClick={onClose}>
             {text("取消", "Cancel")}
           </button>
-          {connection?.configured && (
+          {(connection?.configured || connection?.oauthClientConfigured) && (
             <button
               className="button secondary"
               type="button"
@@ -225,17 +243,19 @@ export function LinearConnectionDialog({
               {text("中斷 OAuth 連線", "Disconnect OAuth")}
             </button>
           )}
-          <button
-            className="button primary"
-            type="submit"
-            disabled={busy || !apiKey.trim()}
-          >
-            {saving
-              ? text("連線中…", "Connecting…")
-              : connection?.configured
-                ? text("儲存並同步", "Save and sync")
-                : text("連接並同步", "Connect and sync")}
-          </button>
+          {(apiKeyOpen || !connection?.oauthClientConfigured) && (
+            <button
+              className="button primary"
+              type="submit"
+              disabled={busy || !apiKey.trim()}
+            >
+              {saving
+                ? text("連線中…", "Connecting…")
+                : connection?.configured
+                  ? text("儲存並同步", "Save and sync")
+                  : text("使用 API Key 連線", "Connect with API key")}
+            </button>
+          )}
         </div>
       </form>
     </div>

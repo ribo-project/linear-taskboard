@@ -85,7 +85,7 @@ For source development:
 
 - Node.js 22.5 or newer.
 - Git.
-- A Linear account and either a personal API key or a configured OAuth 2.0 application.
+- A Linear account. The bundled public OAuth 2.0 application is used by default; a personal API key remains available as an advanced fallback.
 - Codex desktop app when testing the embedded Codex experience.
 - Rust 1.88+ and platform build tools only when building the Tauri desktop application.
 
@@ -165,23 +165,20 @@ The preferred path is the Taskboard UI:
 
 1. Open the project menu.
 2. Choose **Connect Linear** / **Linear Settings**.
-3. Choose **Connect with Linear OAuth**; if OAuth is not configured, enter a Linear personal API key.
+3. Choose **Connect with Linear OAuth**; the browser opens Linear and reuses the user's existing login session.
 4. Optionally restrict synchronization to specific Team IDs or Project IDs.
 5. Choose whether to synchronize only issues assigned to the current Linear user.
 6. Synchronize.
 
 The API key is used by the local Taskboard service to call Linear's GraphQL API. It is not stored in issue content, Codex prompts, Git commits, or browser local storage.
 
-OAuth 2.0 is also supported. Set the OAuth application's client ID before starting the launcher:
+OAuth 2.0 is the default connection path. The repository includes the public OAuth application client ID, so users do not need to configure an environment variable. The Taskboard uses Authorization Code + PKCE; after the user approves access in Linear, return to Taskboard and choose **Sync now**.
 
 ```powershell
-$env:LINEAR_OAUTH_CLIENT_ID="your-linear-oauth-client-id"
-$env:LINEAR_OAUTH_REDIRECT_URI="http://127.0.0.1:47823/api/local/linear-oauth/callback"
-$env:CODEX_TASKBOARD_HOST="127.0.0.1"
 npm run codex
 ```
 
-Register the same redirect URI in the Linear OAuth application. The Taskboard uses Authorization Code + PKCE, stores OAuth tokens only in the local config file, refreshes access tokens automatically, and does not return tokens to the browser. Do not paste an API key or OAuth token into chat, issues, comments, or commits.
+The redirect URI is already registered in the public Linear OAuth application. OAuth tokens are stored only in the local config file, refreshed automatically, and never returned to the browser. Do not paste an API key or OAuth token into chat, issues, comments, or commits.
 
 ### CLI bootstrap
 

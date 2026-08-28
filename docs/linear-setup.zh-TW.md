@@ -42,23 +42,20 @@ npm run dev
 
 1. 打開 Taskboard Project 選單。
 2. 選擇 **連接 Linear** 或 **Linear 設定**。
-3. 選擇 **使用 Linear OAuth 連線**，依畫面完成授權；若尚未設定 OAuth App，才改用 Linear Personal API Key。
+3. 選擇 **使用 Linear OAuth 連線**，依畫面完成授權；專案已內建公開 OAuth App，通常不需要輸入 API Key。
 4. 如有需要，填入 Team ID / Project ID 作為同步範圍。
 5. 選擇是否只同步目前 Linear 使用者負責的 Issue。
 6. 儲存並同步。
 
 API Key 或 OAuth Token 只保存在本機 `linear-connection.json`，不會回傳給前端。
 
-若要使用 OAuth 2.0，請先在 Linear 建立 OAuth App，並在 PowerShell 設定 Client ID 與完全相同的回呼網址：
+本專案已設定公開 OAuth App 與 PKCE。使用者不需要建立 OAuth App 或設定 Client ID，只要在 Linear 登入後按下授權即可。若是從原始碼啟動，也可以使用以下本機啟動設定：
 
 ```powershell
-$env:LINEAR_OAUTH_CLIENT_ID="your-linear-oauth-client-id"
-$env:LINEAR_OAUTH_REDIRECT_URI="http://127.0.0.1:47823/api/local/linear-oauth/callback"
-$env:CODEX_TASKBOARD_HOST="127.0.0.1"
 npm run codex
 ```
 
-接著從 Taskboard 的 Linear 設定入口選擇 **使用 Linear OAuth 連線**。Taskboard 使用 Authorization Code + PKCE，並在 Access Token 過期時自動更新。
+接著從 Taskboard 的 Linear 設定入口選擇 **使用 Linear OAuth 連線**。授權完成後回到 Taskboard，按 **立即同步**；Taskboard 使用 Authorization Code + PKCE，並在 Access Token 過期時自動更新。
 
 ### 使用 CLI
 

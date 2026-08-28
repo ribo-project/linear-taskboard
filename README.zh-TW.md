@@ -126,7 +126,7 @@ Codex 預設只做到 **In Review**。
 
 - Node.js 22.5 以上
 - Git
-- Linear 帳號，以及 Personal API Key 或已設定好的 OAuth App Client ID
+- Linear 帳號即可；專案預設使用內建的公開 OAuth 2.0 應用程式，Personal API Key 僅作為進階備用方式
 - 要測試 Codex 內嵌介面時，需要 Codex Desktop App
 - 只有要打包 Tauri 桌面版時，才需要 Rust 1.88+ 與各平台 build tools
 
@@ -208,23 +208,20 @@ npm run dev
 
 1. 打開 Project 選單。
 2. 選擇 **連接 Linear / Linear 設定**。
-3. 建議選擇 **使用 Linear OAuth 連線**；若未設定 OAuth App，也可以輸入 Linear Personal API Key。
+3. 選擇 **使用 Linear OAuth 連線**；系統會開啟 Linear，並沿用使用者目前的登入狀態。
 4. 如有需要，可限制指定 Team ID / Project ID。
 5. 選擇是否只同步目前 Linear 使用者負責的 Issue。
 6. 執行同步。
 
 Linear API Key 只會由本機 Taskboard Server 用來呼叫 Linear GraphQL API。
 
-目前版本同時支援 Linear Personal API Key 與 OAuth 2.0。若要使用 OAuth，請先在 PowerShell 設定 OAuth App 的 Client ID，並在 Linear OAuth App 中登記完全相同的回呼網址：
+OAuth 2.0 是預設連線方式。專案已內建公開 OAuth App 的 Client ID，使用者不需要設定環境變數。完成 Linear 授權後，回到 Taskboard 按 **立即同步**，即可完成連線與資料同步：
 
 ```powershell
-$env:LINEAR_OAUTH_CLIENT_ID="your-linear-oauth-client-id"
-$env:LINEAR_OAUTH_REDIRECT_URI="http://127.0.0.1:47823/api/local/linear-oauth/callback"
-$env:CODEX_TASKBOARD_HOST="127.0.0.1"
 npm run codex
 ```
 
-Taskboard 使用 Authorization Code + PKCE；OAuth Token 只會儲存在本機設定檔，Access Token 過期時會自動更新，也不會回傳給瀏覽器。請不要把 API Key 或 OAuth Token 貼到對話、Issue、留言或 commit 中。
+回呼網址已登記在專案使用的公開 Linear OAuth App。Taskboard 使用 Authorization Code + PKCE；OAuth Token 只會儲存在本機設定檔，Access Token 過期時會自動更新，也不會回傳給瀏覽器。請不要把 API Key 或 OAuth Token 貼到對話、Issue、留言或 commit 中。
 
 不會寫進：
 

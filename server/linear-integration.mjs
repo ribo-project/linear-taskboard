@@ -10,6 +10,8 @@ import {
 } from "./linear-mapping.mjs";
 
 const SYNC_INTERVAL_MS = 60_000;
+// Public OAuth clients use PKCE; the client ID is not a credential.
+const DEFAULT_LINEAR_OAUTH_CLIENT_ID = "11542f79fcb6a9c01933cf5810673c29";
 const CODEX_READY_LABEL = "codex-ready";
 const CODEX_READY_LABEL_COLOR = "#5E6AD2";
 const CODEX_READY_LABEL_DESCRIPTION = "Allows Codex Taskboard automation to claim this issue automatically.";
@@ -64,7 +66,7 @@ export function createLinearIntegration({
   projection = null,
   fetch: fetchImplementation = globalThis.fetch,
   endpoint,
-  oauthClientId = process.env.LINEAR_OAUTH_CLIENT_ID,
+  oauthClientId = process.env.LINEAR_OAUTH_CLIENT_ID || DEFAULT_LINEAR_OAUTH_CLIENT_ID,
   oauthClientSecret = process.env.LINEAR_OAUTH_CLIENT_SECRET,
   oauthRedirectUri = process.env.LINEAR_OAUTH_REDIRECT_URI
     ?? `http://127.0.0.1:${process.env.CODEX_TASKBOARD_PORT || "47823"}/api/local/linear-oauth/callback`,
