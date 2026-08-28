@@ -113,13 +113,17 @@ let quotaPoliciesWritePromise = Promise.resolve();
 const taskConversationAppServerTimeoutMs = 30_000;
 
 function windowsPowerShellPath() {
-  return path.join(
-    process.env.SystemRoot || "C:\\Windows",
-    "System32",
-    "WindowsPowerShell",
-    "v1.0",
-    "powershell.exe",
-  );
+  if (process.env.CODEX_TASKBOARD_PWSH?.trim()) {
+    return process.env.CODEX_TASKBOARD_PWSH.trim();
+  }
+  const lookup = spawnSync("where.exe", ["pwsh.exe"], {
+    encoding: "utf8",
+    windowsHide: true,
+    maxBuffer: 64 * 1024,
+  });
+  return lookup.status === 0 && lookup.stdout.trim()
+    ? lookup.stdout.trim().split(/\r?\n/)[0]
+    : "pwsh.exe";
 }
 
 function defaultCodexAppPath() {

@@ -755,7 +755,7 @@ fn quit_codex_normally(pid: u32) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn find_codex_app(_home_directory: &Path) -> Option<PathBuf> {
-    let output = StdCommand::new("powershell.exe")
+    let output = StdCommand::new("pwsh.exe")
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -776,7 +776,7 @@ fn find_codex_app(_home_directory: &Path) -> Option<PathBuf> {
 
 #[cfg(target_os = "windows")]
 fn ordinary_codex_process(app_path: &Path, codex_profile: &Path) -> Result<Option<u32>, String> {
-    let output = StdCommand::new("powershell.exe")
+    let output = StdCommand::new("pwsh.exe")
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -965,7 +965,7 @@ fn process_group_is_running(pid: u32) -> bool {
 
 #[cfg(target_os = "windows")]
 fn process_group_is_running(pid: u32) -> bool {
-    StdCommand::new("powershell.exe")
+    StdCommand::new("pwsh.exe")
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -1079,7 +1079,7 @@ fn process_matches_record(record: &LauncherPidRecord) -> bool {
 
 #[cfg(target_os = "windows")]
 fn process_matches_record(record: &LauncherPidRecord) -> bool {
-    let output = StdCommand::new("powershell.exe")
+    let output = StdCommand::new("pwsh.exe")
         .args([
             "-NoProfile",
             "-NonInteractive",

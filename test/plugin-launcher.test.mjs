@@ -27,6 +27,12 @@ test("the Windows shortcut targets the main Codex profile with loopback CDP", ()
   assert.match(shortcutInstaller, /User Pinned.*TaskBar/);
 });
 
+test("Windows launcher commands use PowerShell 7", () => {
+  assert.match(injector, /where\.exe.*pwsh\.exe/s);
+  assert.doesNotMatch(injector, /WindowsPowerShell/);
+  assert.doesNotMatch(shortcutInstaller, /powershell\.exe/i);
+});
+
 test("Windows launch attaches to the main Codex CDP before starting a process", () => {
   assert.match(injector, /process\.platform === "win32"/);
   assert.match(injector, /Get-CimInstance Win32_Process/);
